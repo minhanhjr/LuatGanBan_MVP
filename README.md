@@ -19,14 +19,7 @@ streamlit run app.py
 GEMINI_API_KEY = "..."
 ```
 
-## Tài khoản (tạo tự động lần chạy đầu, lưu ở `data/users.json`)
-
-| Tài khoản | Mật khẩu | Vai trò | Quyền |
-|---|---|---|---|
-| `admin_Minh` | `admin` | Quản trị viên | Toàn quyền + quản lý tài khoản |
-| `APAG_han` | `123123` | Cán bộ | Đủ 5 quyền |
-| `APAG_thai` | `123123` | Cán bộ | Đủ 5 quyền |
-| `APAG_gv` | `giangvien123` | Cán bộ | Đủ 5 quyền |
+## Tài khoản
 
 Bà con **không cần đăng nhập** — trang Hỏi đáp luôn mở. Đăng nhập ở thanh bên trái
 chỉ để mở thêm trang *Quản trị kho*; riêng trang *Tài khoản & phân quyền* chỉ quản trị
