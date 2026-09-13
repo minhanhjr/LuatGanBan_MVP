@@ -21,19 +21,133 @@ ROOT = Path(__file__).resolve().parent
 st.set_page_config(page_title="Luật Gần Bản", page_icon="⚖️",
                    layout="centered", initial_sidebar_state="collapsed")
 
+# ==========================================================================
+# GIAO DIỆN CHUNG
+#
+# Nguyên tắc: màn hình của bà con chỉ nên có MỘT thứ nổi bật — nút micro.
+# Mọi thứ Streamlit tự thêm vào (thanh Deploy, menu ⋮, huy hiệu GitHub, đồng
+# hồ chạy ở góc) đều bị ẩn, vì bà con không hiểu chúng là gì và rất dễ bấm
+# nhầm. Nút mở thanh bên vẫn giữ lại nhưng làm mờ đi, bởi cán bộ cần nó để
+# đăng nhập.
+# ==========================================================================
 st.markdown("""
 <style>
+  /* ---------- phông chữ ---------- */
   .stApp, p, h1,h2,h3,h4,h5,h6, label, button, input, .stMarkdown, .stText, .stTextArea
       { font-family: 'Times New Roman', Times, serif !important; }
   [data-testid="stExpanderToggleIcon"], [data-testid="stIconMaterial"],
   [data-testid="stFileUploadDropzone"] span, .st-icon, .material-icons,
   .material-symbols-rounded
       { font-family: 'Material Symbols Rounded','Material Icons',sans-serif !important; }
-  .the-tra-loi { font-size: 20px; line-height: 1.6; }
+
+  /* ---------- ẩn thanh công cụ mặc định của Streamlit ---------- */
+  [data-testid="stToolbar"],
+  [data-testid="stDecoration"],
+  [data-testid="stStatusWidget"],
+  [data-testid="manage-app-button"],
+  .stAppDeployButton,
+  #MainMenu,
+  footer,
+  [class*="viewerBadge"]            { display: none !important; }
+
+  /* header trong suốt, không chiếm chiều cao */
+  header[data-testid="stHeader"] {
+      background: transparent !important;
+      height: 0 !important;
+      min-height: 0 !important;
+  }
+  /* giữ lại nút mở thanh bên cho cán bộ, nhưng làm mờ để bà con không để ý */
+  [data-testid="stSidebarCollapsedControl"] {
+      opacity: .25; transition: opacity .2s;
+  }
+  [data-testid="stSidebarCollapsedControl"]:hover { opacity: 1; }
+
+  /* kéo nội dung lên sát đỉnh vì header đã bị thu về 0 */
+  .block-container { padding-top: 2.2rem !important; padding-bottom: 3rem !important; }
+
+  /* ---------- header dự án: gom về MỘT dòng ---------- */
+  .lgb-header {
+      display: flex; align-items: center; gap: 10px;
+      padding-bottom: 8px; margin-bottom: 14px;
+      border-bottom: 1px solid #e3e6ea;
+  }
+  .lgb-header img { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; }
+  .lgb-ten {
+      color: #003366; font-size: 17px; font-weight: bold;
+      letter-spacing: .3px; white-space: nowrap;
+  }
+  .lgb-slogan {
+      color: #666; font-size: 11.5px; font-style: italic;
+      border-left: 1px solid #ccc; padding-left: 10px; margin-left: 8px;
+  }
+  @media (max-width: 640px) {
+      .lgb-slogan { display: none; }          /* điện thoại: bỏ slogan cho gọn */
+      .lgb-ten    { font-size: 16px; }
+  }
+
+  /* ---------- khu ghi âm: nút micro tròn, to ---------- */
+  [data-testid="stAudioInput"] {
+      display: flex !important; justify-content: center !important;
+      max-width: 560px; margin: 2px auto 6px auto !important;
+  }
+  [data-testid="stAudioInput"] > div,
+  [data-testid="stAudioInput"] > div > div {
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 12px !important;
+      width: 100% !important;
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+  }
+  [data-testid="stAudioInputActionButton"] {
+      width: 96px !important; height: 96px !important;
+      min-width: 96px !important; min-height: 96px !important;
+      border-radius: 50% !important;
+      background: #1B7F4B !important;
+      border: 4px solid #d6efe0 !important;
+      box-shadow: 0 6px 18px rgba(27,127,75,.30) !important;
+      animation: lgb-tho 2.4s ease-in-out infinite;
+  }
+  [data-testid="stAudioInputActionButton"]:hover { background: #15653C !important; }
+  [data-testid="stAudioInputActionButton"] svg,
+  [data-testid="stAudioInputActionButton"] path {
+      width: 44px !important; height: 44px !important;
+      fill: #ffffff !important; color: #ffffff !important;
+  }
+  /* đang thu âm: Streamlit đổi nhãn nút sang "Stop" -> chuyển đỏ + nhịp sóng */
+  [data-testid="stAudioInputActionButton"][aria-label*="top" i],
+  [data-testid="stAudioInputActionButton"][title*="top" i] {
+      background: #C62828 !important;
+      border-color: #f7d5d5 !important;
+      animation: lgb-thu 1.1s ease-out infinite;
+  }
+  @keyframes lgb-tho {
+      0%,100% { transform: scale(1); }
+      50%     { transform: scale(1.05); }
+  }
+  @keyframes lgb-thu {
+      0%   { box-shadow: 0 0 0 0 rgba(198,40,40,.55); }
+      70%  { box-shadow: 0 0 0 28px rgba(198,40,40,0); }
+      100% { box-shadow: 0 0 0 0 rgba(198,40,40,0); }
+  }
+  [data-testid="stAudioInputWaveSurfer"] { width: 100% !important; min-height: 54px !important; }
+  [data-testid="stAudioInputWaveformTimeCode"] { font-size: 15px !important; }
+
+  /* ---------- nút chọn ngôn ngữ: to, rõ ---------- */
+  [data-testid="stSegmentedControl"] { display: flex; justify-content: center; }
+  [data-testid="stSegmentedControl"] button {
+      font-size: 17px !important; padding: 9px 26px !important; font-weight: 600 !important;
+  }
+
+  /* ---------- chữ trong thẻ trả lời ---------- */
+  .the-tra-loi { font-size: 20px; line-height: 1.65; }
   .the-tra-loi b { color: #003366; }
   div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px; }
-  /* nút micro to, dễ bấm cho người lớn tuổi */
-  [data-testid="stAudioInput"] { transform: scale(1.15); transform-origin: left center; }
+
+  /* mục "cách khác" ở cuối trang: thu nhỏ, không hút mắt */
+  .lgb-phu [data-testid="stExpander"] summary p { font-size: 13px !important; color: #777 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -45,23 +159,16 @@ def _logo_b64() -> str:
 
 
 def header() -> None:
+    """Header một dòng — nhường toàn bộ màn hình cho nút micro."""
     b64 = _logo_b64()
-    img = (f'<img src="data:image/png;base64,{b64}" style="width:75px;height:auto;'
-           'object-fit:contain;">' if b64 else
-           '<div style="width:75px;text-align:center;color:gray;">[Logo]</div>')
-    st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:5px;">
-      <div style="flex-shrink:0;">{img}</div>
-      <div style="line-height:1.3;">
-        <div style="color:#8B0000;font-size:13px;font-weight:bold;text-transform:uppercase;">
-          Học viện Hành chính và Quản trị Công</div>
-        <div style="color:#003366;font-size:18px;font-weight:bold;margin-top:2px;">
-          DỰ ÁN LUẬT GẦN BẢN</div>
-        <div style="font-style:italic;color:#444;font-size:12px;margin-top:2px;">
-          "Không để khoảng cách số trở thành khoảng cách công lý"</div>
-      </div>
-    </div><hr style="margin:5px 0 18px 0;border:0.5px solid #ddd;">
-    """, unsafe_allow_html=True)
+    img = (f'<img src="data:image/png;base64,{b64}" alt="">' if b64 else "")
+    st.markdown(
+        f'<div class="lgb-header">{img}'
+        f'<span class="lgb-ten">LUẬT GẦN BẢN</span>'
+        f'<span class="lgb-slogan">Không để khoảng cách số '
+        f'trở thành khoảng cách công lý</span></div>',
+        unsafe_allow_html=True,
+    )
 
 
 header()

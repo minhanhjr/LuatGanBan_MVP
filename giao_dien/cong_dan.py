@@ -1,8 +1,16 @@
 # -*- coding: utf-8 -*-
 """Cổng người dân — hỏi đáp thủ tục bằng giọng nói.
 
-Nguyên tắc giao diện: MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự
-chạy hết chuỗi, không có nút "xử lý" thứ hai. Mọi thứ khác đẩy xuống dưới.
+Nguyên tắc giao diện (voice-first):
+
+  * MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự chạy hết chuỗi,
+    không có nút "xử lý" thứ hai.
+  * Không hiện con số kỹ thuật. Bà con không cần biết "độ tin cậy 10%";
+    họ chỉ cần biết máy nghe rõ hay chưa. Mọi chỉ số dời vào mục dành cho
+    cán bộ ở cuối trang.
+  * Chữ nào cũng có loa. Người không đọc được vẫn phải dùng được trọn vẹn,
+    nên mọi nội dung trả lời đều kèm trình phát tiếng.
+  * Gõ chữ là đường phụ, đặt cuối trang, cỡ nhỏ.
 """
 from __future__ import annotations
 
@@ -58,36 +66,56 @@ def _dich_mong(text: str) -> dict:
     return dich_sang_mong(text)
 
 
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _tts_vi(text: str) -> str:
+    """Đọc một đoạn chữ bằng giọng Việt. Trả về đường dẫn file, "" nếu hỏng."""
+    try:
+        p = tts_tieng_viet(text)
+        return str(p) if p else ""
+    except Exception:
+        return ""
+
+
+def loa(text: str, *, chu_thich: str = "🔊 Bấm để nghe") -> None:
+    """Hiện trình phát tiếng cho một đoạn chữ. Im lặng bỏ qua nếu không tạo được."""
+    if not (text or "").strip():
+        return
+    p = _tts_vi(text)
+    if p:
+        st.audio(p)
+        if chu_thich:
+            st.caption(chu_thich)
+
+
 # ==========================================================================
 # PIPELINE — mỗi bước cập nhật ngay khi xong, không chờ cả chuỗi
 # ==========================================================================
 def _thong_diep_loi(e: Exception) -> str:
     """Đổi lỗi kỹ thuật thành câu người thường đọc được."""
     if isinstance(e, LoiQuota):
-        return ("Tài khoản Gemini đã hết lượt gọi miễn phí trong phút/ngày này. "
-                "Chờ vài phút rồi thử lại, hoặc chọn thủ tục ở mục **Cách khác** "
-                "(những thủ tục đã tạo sẵn câu trả lời vẫn dùng được ngay).")
+        return ("Máy đang bận, bà con chờ vài phút rồi hỏi lại nhé. "
+                "Hoặc chọn thủ tục ở mục **Cách khác** cuối trang — "
+                "những việc đã có sẵn câu trả lời thì dùng được ngay.")
     s = str(e)
     if "GEMINI_API_KEY" in s:
-        return "Chưa cấu hình khoá API Gemini trong `.streamlit/secrets.toml`."
+        return "Máy chưa được cài đặt xong. Bà con báo cán bộ giúp nhé."
     if "model" in s.lower() and ("404" in s or "not_found" in s.lower()):
-        return ("Model AI đang dùng không còn khả dụng. Cán bộ vào trang Quản trị → "
-                "Kho thủ tục → *Model Gemini đang dùng* để dò lại.")
-    return f"Hệ thống đang bận. ({s[:140]})"
+        return "Máy đang bảo trì. Bà con báo cán bộ giúp nhé."
+    return "Máy đang bận. Bà con thử lại sau ít phút nhé."
 
 
 def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True) -> dict:
     t0 = time.perf_counter()
     kq: dict = {"cau_noi": cau_noi, "thoi_gian": {}}
 
-    with st.status("Đang xử lý…", expanded=True) as box:
-        box.write("🧭 **Bước 1/4** — Tìm xem bà con cần thủ tục nào…")
+    with st.status("Đang tìm hướng dẫn cho bà con…", expanded=False) as box:
+        box.write("Đang xem bà con cần làm việc gì…")
         t = time.perf_counter()
         try:
             tuyen = _dinh_tuyen(cau_noi)
         except Exception as e:
             kq["loi"] = _thong_diep_loi(e)
-            box.update(label="Chưa xử lý được", state="error", expanded=False)
+            box.update(label="Chưa xong", state="error", expanded=False)
             return kq
         kq["thoi_gian"]["dinh_tuyen"] = time.perf_counter() - t
         kq["tuyen"] = tuyen
@@ -97,47 +125,43 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True) -> dict:
         if tuyen["can_can_bo"] or tt is None:
             box.update(label="Cần cán bộ hỗ trợ", state="complete", expanded=False)
             return kq
-        box.write(f"   ↳ **{tt.ten}** (mã {tt.ma_thu_tuc}) — "
-                  f"độ tin cậy {tuyen['tin_cay_thu_tuc']:.0%}")
+        box.write(f"Đúng việc: {tt.ten}")
 
-        box.write("📖 **Bước 2/4** — Đọc file hướng dẫn và rút ra câu ngắn gọn…")
+        box.write("Đang đọc hướng dẫn của Nhà nước…")
         t = time.perf_counter()
         try:
             kq["don_gian"] = _don_gian_hoa(tt.key, CAU_HOI_MAC_DINH)
         except Exception as e:
             kq["loi"] = _thong_diep_loi(e)
-            box.update(label="Chưa xử lý được", state="error", expanded=False)
+            box.update(label="Chưa xong", state="error", expanded=False)
             return kq
         kq["thoi_gian"]["don_gian_hoa"] = time.perf_counter() - t
         kq["kich_ban"] = thanh_van_ban_doc(kq["don_gian"])
-        box.write(f"   ↳ xong ({kq['thoi_gian']['don_gian_hoa']:.1f}s"
-                  f"{', lấy từ bộ nhớ' if kq['don_gian'].get('_tu_cache') else ''})")
 
-        # Bước 3-4 KHÔNG sống còn: hỏng thì vẫn còn câu trả lời tiếng Việt.
+        # Giọng đọc tiếng Việt: tạo sẵn để bà con chỉ việc bấm ▶, không phải
+        # bấm thêm một nút "tạo giọng" nữa.
+        box.write("Đang chuẩn bị giọng đọc…")
+        kq["audio_viet"] = _tts_vi(kq["kich_ban"])
+
+        # Bước dịch + giọng Mông KHÔNG sống còn: hỏng thì vẫn còn tiếng Việt.
         if phat_giong_mong:
-            box.write("🔄 **Bước 3/4** — Dịch sang tiếng Mông…")
+            box.write("Đang dịch sang tiếng Mông…")
             t = time.perf_counter()
             try:
                 kq["mong"] = _dich_mong(kq["kich_ban"])
                 kq["thoi_gian"]["dich"] = time.perf_counter() - t
-                box.write("   ↳ xong")
 
-                box.write("🔊 **Bước 4/4** — Tạo giọng đọc tiếng Mông…")
                 t = time.perf_counter()
                 audio, tang = phat_tieng_mong(kq["mong"]["rpa"], key=tt.key)
                 kq["thoi_gian"]["tts"] = time.perf_counter() - t
                 kq["audio_mong"] = str(audio) if audio else ""
                 kq["tang_tts"] = tang
-                box.write(f"   ↳ {NHAN_TANG.get(tang, tang)}")
             except Exception as e:
-                kq["canh_bao"] = f"Chưa dịch/đọc được tiếng Mông: {_thong_diep_loi(e)}"
-                box.write("   ↳ ⚠️ bỏ qua phần tiếng Mông")
-        else:
-            box.write("⏭️ Bỏ qua bước dịch & giọng Mông (đang tắt)")
+                kq["canh_bao"] = "Phần tiếng Mông chưa sẵn sàng, bà con nghe tạm tiếng Việt nhé."
+                kq["_loi_mong"] = str(e)
 
         kq["thoi_gian"]["tong"] = time.perf_counter() - t0
-        box.update(label=f"Xong sau {kq['thoi_gian']['tong']:.1f} giây",
-                   state="complete", expanded=False)
+        box.update(label="Đã có hướng dẫn cho bà con", state="complete", expanded=False)
     return kq
 
 
@@ -147,15 +171,31 @@ def xu_ly_cau_noi(van_ban: str) -> None:
 
 
 # ==========================================================================
-# MỘT NÚT DUY NHẤT
+# 1. CHỌN TIẾNG — mặc định tiếng Mông
 # ==========================================================================
-st.markdown("### 🎙️ Bà con bấm vào micro rồi nói")
-st.caption("Nói xong bấm dừng — máy tự làm hết, không phải bấm gì thêm.")
+LUA_CHON = ["🔊 Tiếng Mông", "🔊 Tiếng Việt"]
 
-ngon_ngu = st.radio("Nói bằng tiếng gì?", ["Tiếng Việt", "Tiếng Mông (Hmong)"],
-                    horizontal=True, label_visibility="collapsed")
+if hasattr(st, "segmented_control"):
+    ngon_ngu = st.segmented_control(
+        "Bà con nói bằng tiếng gì?", LUA_CHON,
+        default=LUA_CHON[0], label_visibility="collapsed",
+    ) or LUA_CHON[0]
+else:                                    # Streamlit cũ: quay về radio
+    ngon_ngu = st.radio("Bà con nói bằng tiếng gì?", LUA_CHON,
+                        index=0, horizontal=True, label_visibility="collapsed")
 
-audio_in = st.audio_input("Bấm micro:", label_visibility="collapsed")
+la_tieng_mong = ngon_ngu.endswith("Mông")
+
+# ==========================================================================
+# 2. MỘT NÚT DUY NHẤT
+# ==========================================================================
+st.markdown(
+    '<div style="text-align:center;font-size:26px;font-weight:bold;'
+    'color:#003366;margin:10px 0 2px 0;">Bấm vào đây để nói</div>',
+    unsafe_allow_html=True,
+)
+
+audio_in = st.audio_input("Bấm micro để nói", label_visibility="collapsed")
 
 # Tự xử lý ngay khi có bản ghi MỚI. Dấu vân tay nội dung để không chạy lại
 # mỗi lần Streamlit vẽ lại trang.
@@ -164,60 +204,28 @@ if audio_in is not None:
     van_tay = hashlib.sha256(raw).hexdigest()[:16]
     if van_tay != ss.audio_da_xu_ly and len(raw) > 2000:
         ss.audio_da_xu_ly = van_tay
-        with st.spinner("🎧 Đang nghe bà con nói…"):
-            van_ban, _nguon = nghe(audio_in, tieng_mong=(ngon_ngu != "Tiếng Việt"))
+        with st.spinner("Đang nghe bà con nói…"):
+            van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong)
         if not van_ban:
-            st.error("Máy chưa nghe rõ. Bà con nói lại gần micro hơn, "
-                     "hoặc gõ câu hỏi ở phần **Cách khác** bên dưới.")
+            st.error("Máy chưa nghe rõ, bà con bấm nói lại nhé.")
+            loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.", chu_thich="")
         else:
-            if ngon_ngu != "Tiếng Việt":
-                st.info(f"🗣️ Tiếng Mông: *{van_ban.splitlines()[0]}*")
+            if la_tieng_mong:
                 dong_vi = [l for l in van_ban.splitlines() if l.startswith("VI:")]
                 van_ban = (dong_vi[0][3:].strip() if dong_vi
                            else dich_sang_viet(van_ban))
-            st.success(f"🗣️ Bà con nói: *{van_ban}*")
+            st.success(f"Bà con nói: *{van_ban}*")
             xu_ly_cau_noi(van_ban)
     elif 0 < len(raw) <= 2000:
-        st.warning("Bản ghi quá ngắn. Bà con bấm micro và nói lâu hơn một chút.")
-
-# ==========================================================================
-# CÁCH KHÁC (gõ chữ / chọn danh sách) — thu gọn để không rối
-# ==========================================================================
-with st.expander("⌨️ Cách khác: gõ chữ hoặc chọn từ danh sách"):
-    t_go, t_chon = st.tabs(["Gõ câu hỏi", "Chọn thủ tục"])
-
-    with t_go:
-        with st.form("form_go", clear_on_submit=False):
-            txt = st.text_area(
-                "Bà con cần hỏi việc gì?",
-                placeholder="Ví dụ: Vợ tôi mới sinh con, tôi muốn làm giấy khai sinh",
-                height=90)
-            if st.form_submit_button("Gửi câu hỏi", type="primary",
-                                     use_container_width=True) and txt.strip():
-                xu_ly_cau_noi(txt.strip())
-
-    with t_chon:
-        st.caption("Chọn trực tiếp — không cần gọi AI, trả lời ngay. "
-                   "Dùng khi phòng ồn hoặc mạng yếu.")
-        nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
-                                 format_func=lambda k: DANH_MUC_THU_TUC[k])
-        ds = kb.theo_nhom(nhom_chon)
-        if not ds:
-            st.warning("Chưa có dữ liệu cho nhóm này. Nhóm đã có dữ liệu: "
-                       + ", ".join(sorted({n for t in kb.load_kb() for n in t.nhom})))
-        else:
-            tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
-            if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
-                xu_ly_cau_noi(tt_chon.ten)
+        st.warning("Bà con bấm micro rồi nói lâu hơn một chút nhé.")
 
 
 # ==========================================================================
-# KẾT QUẢ
+# 3. KẾT QUẢ
 # ==========================================================================
 def nut_goi_can_bo(kq: dict) -> None:
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🙋 CẦN CÁN BỘ / TÌNH NGUYỆN VIÊN HỖ TRỢ TRỰC TIẾP",
-                 use_container_width=True):
+    if st.button("🙋 CẦN CÁN BỘ HỖ TRỢ TRỰC TIẾP", use_container_width=True):
         tt = kq.get("thu_tuc")
         ss.danh_sach_yeu_cau.append({
             "thoi_gian": datetime.now().strftime("%d/%m %H:%M:%S"),
@@ -227,32 +235,38 @@ def nut_goi_can_bo(kq: dict) -> None:
             "tin_cay": kq["tuyen"].get("tin_cay_thu_tuc", 0),
             "trang_thai": "Mới",
         })
-        st.success("✅ Đã gửi yêu cầu. Cán bộ sẽ liên hệ với bà con.")
+        st.success("✅ Đã gửi. Cán bộ sẽ liên hệ với bà con.")
 
 
 def hien_ket_qua(kq: dict) -> None:
     if kq.get("loi"):
-        st.error(f"⚠️ {kq['loi']}")
-        st.info("Bà con vẫn có thể bấm nút dưới để cán bộ hỗ trợ trực tiếp.")
+        st.error(kq["loi"])
+        loa(kq["loi"], chu_thich="")
         kq.setdefault("tuyen", {"ten_nhom": "VẤN ĐỀ KHÁC", "tin_cay_thu_tuc": 0})
         nut_goi_can_bo(kq)
         return
     if kq.get("canh_bao"):
-        st.warning(f"⚠️ {kq['canh_bao']}")
+        st.info(kq["canh_bao"])
 
     tuyen, tt = kq["tuyen"], kq.get("thu_tuc")
 
+    # --- máy chưa chắc chắn: hỏi lại bằng lời, KHÔNG hiện phần trăm ---
     if tuyen["can_can_bo"] or tt is None:
-        st.warning(f"🏷️ Hệ thống hiểu là: **{tuyen['ten_nhom']}** "
-                   f"(chưa đủ chắc chắn — {tuyen['tin_cay_nhom']:.0%})")
-        if tuyen.get("cau_hoi_lam_ro"):
-            st.info(f"❓ {tuyen['cau_hoi_lam_ro']}")
-        st.error("Việc này cần cán bộ trả lời trực tiếp. Bấm nút dưới để gửi yêu cầu.")
+        cau_hoi = (tuyen.get("cau_hoi_lam_ro")
+                   or "Bà con muốn hỏi về việc gì ạ? Bà con nói rõ hơn giúp máy nhé.")
+        st.markdown(
+            f'<div style="font-size:22px;line-height:1.6;padding:14px 16px;'
+            f'background:#FFF8E1;border-left:5px solid #F0A500;border-radius:8px;">'
+            f'❓ {cau_hoi}</div>',
+            unsafe_allow_html=True,
+        )
+        loa(cau_hoi)
+        st.caption("Bà con bấm micro ở trên để nói lại, hoặc bấm nút dưới để gặp cán bộ.")
         nut_goi_can_bo(kq)
         return
 
     dg = kq["don_gian"]
-    st.success(f"🏷️ **{tt.ten}**  ·  mã {tt.ma_thu_tuc}  ·  cấp {tt.cap_thuc_hien}")
+    st.success(f"🏷️ **{tt.ten}**")
     if dg.get("_da_duyet"):
         st.caption(f"✅ Nội dung đã được **{dg.get('_nguoi_duyet','cán bộ')}** duyệt.")
 
@@ -273,33 +287,35 @@ def hien_ket_qua(kq: dict) -> None:
         c2.markdown(f"💰 **Tiền:** {dg.get('bao_nhieu_tien','—')}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    if st.button("🔊 Nghe bằng tiếng Việt", use_container_width=True):
-        p = tts_tieng_viet(kq["kich_ban"])
-        if p:
-            st.audio(str(p))
-        else:
-            st.warning("Chưa tạo được giọng đọc (cần mạng + `pip install gTTS`).")
+    # --- nghe câu trả lời: luôn có sẵn, không phải bấm thêm nút tạo giọng ---
+    if kq.get("audio_mong"):
+        st.markdown("**🔊 Nghe bằng tiếng Mông**")
+        st.audio(kq["audio_mong"])
+        if kq.get("tang_tts") == "vi_phonetic":
+            st.caption("Đây là giọng máy đọc phiên âm, chưa phải giọng Mông chuẩn.")
+    st.markdown("**🔊 Nghe bằng tiếng Việt**")
+    if kq.get("audio_viet"):
+        st.audio(kq["audio_viet"])
+    else:
+        loa(kq.get("kich_ban", ""), chu_thich="")
 
     if kq.get("mong"):
-        with st.container(border=True):
+        with st.expander("📖 Xem chữ tiếng Mông"):
             nhan_ortho = ("chữ Mông kiểu Việt Nam" if HMONG_ORTHOGRAPHY == "vn"
                           else "chữ Mông RPA")
-            st.markdown(f"**📖 Tiếng Mông** ({nhan_ortho})")
+            st.caption(nhan_ortho)
             st.markdown(f"### {kq['mong']['hien_thi']}")
-            with st.expander("Xem bản RPA / bản phiên âm"):
-                st.text(f"RPA        : {kq['mong']['rpa']}")
-                st.text(f"Phiên âm VN: {kq['mong']['vn']}")
-            if kq.get("audio_mong"):
-                st.audio(kq["audio_mong"])
-                st.caption(NHAN_TANG.get(kq.get("tang_tts", ""), ""))
-                if kq.get("tang_tts") == "vi_phonetic":
-                    st.caption("⚠️ Đây là giọng máy đọc phiên âm, chưa phải giọng Mông "
-                               "chuẩn. Bản chính thức sẽ dùng giọng người Mông thu sẵn.")
-            else:
-                st.caption(NHAN_TANG.get(kq.get("tang_tts", ""), ""))
+            st.text(f"RPA        : {kq['mong']['rpa']}")
+            st.text(f"Phiên âm VN: {kq['mong']['vn']}")
 
     with st.expander("⚖️ Căn cứ & đối chiếu (dành cho cán bộ)"):
-        st.metric("Độ tin cậy của bản tóm tắt", f"{dg.get('do_tin_cay', 0):.0%}")
+        st.caption(f"Mã thủ tục {tt.ma_thu_tuc} · cấp {tt.cap_thuc_hien}")
+        cot1, cot2 = st.columns(2)
+        cot1.metric("Độ tin cậy bản tóm tắt", f"{dg.get('do_tin_cay', 0):.0%}")
+        cot2.metric("Độ tin cậy phân loại", f"{tuyen.get('tin_cay_thu_tuc', 0):.0%}")
+        st.caption(f"Giọng Mông đã dùng: {NHAN_TANG.get(kq.get('tang_tts',''), '—')}")
+        if kq.get("_loi_mong"):
+            st.caption(f"Lỗi tiếng Mông: {kq['_loi_mong'][:200]}")
         if dg.get("chua_ro"):
             st.warning("Tài liệu **không nêu rõ**: " + "; ".join(dg["chua_ro"]))
         for l in dg.get("luu_y", []):
@@ -330,6 +346,47 @@ if ss.ket_qua:
     st.write("---")
     hien_ket_qua(ss.ket_qua)
 
+
+# ==========================================================================
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách. Đặt cuối trang, cỡ nhỏ.
+# ==========================================================================
+st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
+
+with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh sách"):
+    t_go, t_chon = st.tabs(["Gõ câu hỏi", "Chọn thủ tục"])
+
+    with t_go:
+        with st.form("form_go", clear_on_submit=False):
+            txt = st.text_area(
+                "Bà con cần hỏi việc gì?",
+                placeholder="Ví dụ: Vợ tôi mới sinh con, tôi muốn làm giấy khai sinh",
+                height=90)
+            if st.form_submit_button("Gửi câu hỏi", type="primary",
+                                     use_container_width=True) and txt.strip():
+                xu_ly_cau_noi(txt.strip())
+                st.rerun()
+
+    with t_chon:
+        st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
+        nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
+                                 format_func=lambda k: DANH_MUC_THU_TUC[k])
+        ds = kb.theo_nhom(nhom_chon)
+        if not ds:
+            st.warning("Chưa có dữ liệu cho nhóm này. Nhóm đã có dữ liệu: "
+                       + ", ".join(sorted({n for t in kb.load_kb() for n in t.nhom})))
+        else:
+            tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
+            if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
+                xu_ly_cau_noi(tt_chon.ten)
+                st.rerun()
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ==========================================================================
+# 5. THANH BÊN — chỉ dành cho cán bộ
+# ==========================================================================
 with st.sidebar:
     st.divider()
     st.markdown("### Trạng thái hệ thống")
