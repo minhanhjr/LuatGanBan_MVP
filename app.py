@@ -62,18 +62,16 @@ st.markdown("""
       height: 0 !important;
       min-height: 0 !important;
   }
-  /* giữ lại nút mở thanh bên cho cán bộ, nhưng làm mờ để bà con không để ý */
-  [data-testid="stSidebarCollapsedControl"] {
-      opacity: .25; transition: opacity .2s;
-  }
-  [data-testid="stSidebarCollapsedControl"]:hover { opacity: 1; }
+  /* Nút mở thanh bên (>>) mặc định bị ẩn — xem phần xử lý ?canbo=1 bên dưới. */
 
   /* kéo nội dung lên sát đỉnh vì header đã bị thu về 0 */
   .block-container { padding-top: 2.2rem !important; padding-bottom: 3rem !important; }
 
-  /* khung chứa đoạn JS dọn trang bao ở dưới: không được chiếm chỗ */
-  iframe[title="streamlit.components.v1.html"] {
-      height: 0 !important; border: 0 !important; display: block !important;
+  /* Component HTML: bỏ viền. Riêng cái cao 0 (đoạn JS dọn trang bao) thì
+     không được chiếm chỗ. KHÔNG ẩn tất cả — nút loa cũng là component. */
+  iframe[title="streamlit.components.v1.html"] { border: 0 !important; }
+  iframe[title="streamlit.components.v1.html"][height="0"] {
+      height: 0 !important; display: block !important;
   }
 
   /* ---------- header dự án: gom về MỘT dòng ---------- */
@@ -131,6 +129,21 @@ st.markdown("""
       border: 4px solid #d6efe0 !important;
       box-shadow: 0 6px 18px rgba(27,127,75,.30) !important;
       animation: lgb-tho 2.4s ease-in-out infinite;
+      position: relative !important;     /* để gắn vòng sóng bên dưới */
+  }
+  /* Vòng sóng lan nhẹ khi CHƯA bấm — dấu hiệu "máy đang sẵn sàng nghe" */
+  [data-testid="stAudioInputActionButton"]::before,
+  [data-testid="stAudioInputActionButton"]::after {
+      content: ""; position: absolute; left: 50%; top: 50%;
+      width: 96px; height: 96px; margin: -48px 0 0 -48px;
+      border-radius: 50%; border: 3px solid rgba(27,127,75,.40);
+      pointer-events: none;
+      animation: lgb-song 2.6s ease-out infinite;
+  }
+  [data-testid="stAudioInputActionButton"]::after { animation-delay: 1.3s; }
+  @keyframes lgb-song {
+      0%   { transform: scale(1);    opacity: .65; }
+      100% { transform: scale(1.85); opacity: 0; }
   }
   [data-testid="stAudioInputActionButton"]:hover { background: #15653C !important; }
   [data-testid="stAudioInputActionButton"] svg,
@@ -144,6 +157,11 @@ st.markdown("""
       background: #C62828 !important;
       border-color: #f7d5d5 !important;
       animation: lgb-thu 1.1s ease-out infinite;
+  }
+  /* đang thu thì tắt vòng sóng chờ — lúc này đã có sóng âm thật chuyển động */
+  [data-testid="stAudioInputActionButton"][aria-label*="top" i]::before,
+  [data-testid="stAudioInputActionButton"][aria-label*="top" i]::after {
+      display: none !important;
   }
   @keyframes lgb-tho {
       0%,100% { transform: scale(1); }
@@ -240,6 +258,15 @@ header()
 
 # ======================================================= ĐĂNG NHẬP (thanh bên)
 auth.khoi_tao_mac_dinh()          # lần chạy đầu tiên: tạo 4 tài khoản mặc định
+
+# Màn hình của bà con phải sạch tuyệt đối: không nút >>, không thanh công cụ.
+# Cán bộ vào bằng địa chỉ riêng có thêm ?canbo=1 thì mới thấy nút mở thanh bên.
+# Đã đăng nhập rồi thì giữ nguyên nút, để không bị khoá ngoài giữa chừng.
+if not ("canbo" in st.query_params or auth.nguoi_dang_nhap()):
+    st.markdown(
+        '<style>[data-testid="stSidebarCollapsedControl"]{display:none !important;}</style>',
+        unsafe_allow_html=True,
+    )
 
 with st.sidebar:
     u = auth.nguoi_dang_nhap()

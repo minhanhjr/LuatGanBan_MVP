@@ -14,13 +14,16 @@ Nguyên tắc giao diện (voice-first):
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import time
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
+from streamlit.components.v1 import html as _html
 
-from core import kb
+from core import auth, kb
 from core.config import (DANH_MUC_THU_TUC, HMONG_ORTHOGRAPHY, NGUONG_TU_TIN,
                          TTS_HMONG_PROVIDER)
 from core.llm import LoiQuota
@@ -76,15 +79,80 @@ def _tts_vi(text: str) -> str:
         return ""
 
 
-def loa(text: str, *, chu_thich: str = "🔊 Bấm để nghe") -> None:
-    """Hiện trình phát tiếng cho một đoạn chữ. Im lặng bỏ qua nếu không tạo được."""
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _audio_b64(duong_dan: str) -> tuple[str, str]:
+    """Đọc file âm thanh thành base64 để nhúng thẳng vào nút loa."""
+    p = Path(duong_dan)
+    if not p.exists():
+        return "", ""
+    mime = "audio/mpeg" if p.suffix.lower() == ".mp3" else "audio/wav"
+    return base64.b64encode(p.read_bytes()).decode(), mime
+
+
+_SVG_LOA = ('<svg width="38" height="38" viewBox="0 0 24 24" fill="white">'
+            '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05'
+            'c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 '
+            '5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>')
+_SVG_DUNG = ('<svg width="34" height="34" viewBox="0 0 24 24" fill="white">'
+             '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>')
+
+
+def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
+    """Nút loa tròn, màu xanh dương, bấm một cái là nghe.
+
+    Dùng component HTML riêng thay cho st.audio vì cần: nút tròn to cho người
+    lớn tuổi dễ bấm, và khả năng TỰ PHÁT ngay khi có kết quả.
+    Trả về False nếu không dựng được (không có file).
+    """
+    if not duong_dan:
+        return False
+    b64, mime = _audio_b64(str(duong_dan))
+    if not b64:
+        return False
+
+    tu_phat_js = ("a.play().then(function(){}).catch(function(){"
+                  "tt.textContent='Bấm vào loa để nghe';});") if tu_phat else ""
+    _html(f"""
+<div style="display:flex;align-items:center;gap:16px;
+            font-family:'Times New Roman',Times,serif;padding:4px 0;">
+  <button id="b" aria-label="Nghe" style="
+      width:76px;height:76px;min-width:76px;border-radius:50%;border:4px solid #cfe0f7;
+      background:#0B4F9E;cursor:pointer;display:flex;align-items:center;
+      justify-content:center;box-shadow:0 4px 14px rgba(11,79,158,.35);
+      transition:transform .15s;"></button>
+  <div>
+    <div style="font-size:19px;font-weight:bold;color:#0B4F9E;">{nhan}</div>
+    <div id="tt" style="font-size:14px;color:#666;margin-top:2px;">Bấm để nghe</div>
+  </div>
+  <audio id="a" src="data:{mime};base64,{b64}" preload="auto"></audio>
+</div>
+<script>
+(function(){{
+  var a=document.getElementById('a'), b=document.getElementById('b'),
+      tt=document.getElementById('tt');
+  var LOA=`{_SVG_LOA}`, DUNG=`{_SVG_DUNG}`;
+  function ve(dangPhat){{ b.innerHTML = dangPhat ? DUNG : LOA; }}
+  ve(false);
+  b.onclick=function(){{ if(a.paused){{a.play();}} else {{a.pause();}} }};
+  b.onmousedown=function(){{ b.style.transform='scale(.94)'; }};
+  b.onmouseup=function(){{ b.style.transform='scale(1)'; }};
+  a.onplay =function(){{ ve(true);  tt.textContent='Đang đọc…'; }};
+  a.onpause=function(){{ ve(false); tt.textContent='Bấm để nghe lại'; }};
+  a.onended=function(){{ ve(false); tt.textContent='Bấm để nghe lại'; }};
+  {tu_phat_js}
+}})();
+</script>
+""", height=100)
+    return True
+
+
+def loa(text: str, *, nhan: str = "Nghe", tu_phat: bool = False) -> None:
+    """Đọc một đoạn chữ bằng giọng Việt rồi hiện nút loa."""
     if not (text or "").strip():
         return
     p = _tts_vi(text)
     if p:
-        st.audio(p)
-        if chu_thich:
-            st.caption(chu_thich)
+        nut_loa(p, nhan=nhan, tu_phat=tu_phat)
 
 
 # ==========================================================================
@@ -167,7 +235,10 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True) -> dict:
 
 def xu_ly_cau_noi(van_ban: str) -> None:
     ss.cau_noi = van_ban
-    ss.ket_qua = chay_pipeline(van_ban)
+    kq = chay_pipeline(van_ban)
+    # Nhớ bà con đang dùng tiếng gì, để lát nữa TỰ PHÁT đúng thứ tiếng đó.
+    kq["la_tieng_mong"] = bool(ss.get("la_tieng_mong", True))
+    ss.ket_qua = kq
 
 
 # ==========================================================================
@@ -185,6 +256,7 @@ else:                                    # Streamlit cũ: quay về radio
                         index=0, horizontal=True, label_visibility="collapsed")
 
 la_tieng_mong = ngon_ngu.endswith("Mông")
+ss.la_tieng_mong = la_tieng_mong
 
 # ==========================================================================
 # 2. MỘT NÚT DUY NHẤT
@@ -208,7 +280,8 @@ if audio_in is not None:
             van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong)
         if not van_ban:
             st.error("Máy chưa nghe rõ, bà con bấm nói lại nhé.")
-            loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.", chu_thich="")
+            loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.",
+                nhan="Nghe lại lời nhắc", tu_phat=True)
         else:
             if la_tieng_mong:
                 dong_vi = [l for l in van_ban.splitlines() if l.startswith("VI:")]
@@ -241,7 +314,7 @@ def nut_goi_can_bo(kq: dict) -> None:
 def hien_ket_qua(kq: dict) -> None:
     if kq.get("loi"):
         st.error(kq["loi"])
-        loa(kq["loi"], chu_thich="")
+        loa(kq["loi"], nhan="Nghe lời nhắc", tu_phat=True)
         kq.setdefault("tuyen", {"ten_nhom": "VẤN ĐỀ KHÁC", "tin_cay_thu_tuc": 0})
         nut_goi_can_bo(kq)
         return
@@ -260,7 +333,7 @@ def hien_ket_qua(kq: dict) -> None:
             f'❓ {cau_hoi}</div>',
             unsafe_allow_html=True,
         )
-        loa(cau_hoi)
+        loa(cau_hoi, nhan="Nghe câu hỏi", tu_phat=True)
         st.caption("Bà con bấm micro ở trên để nói lại, hoặc bấm nút dưới để gặp cán bộ.")
         nut_goi_can_bo(kq)
         return
@@ -287,17 +360,22 @@ def hien_ket_qua(kq: dict) -> None:
         c2.markdown(f"💰 **Tiền:** {dg.get('bao_nhieu_tien','—')}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- nghe câu trả lời: luôn có sẵn, không phải bấm thêm nút tạo giọng ---
+    # --- NGHE CÂU TRẢ LỜI ---
+    # Bà con chọn tiếng nào thì thứ tiếng đó TỰ PHÁT ngay, không phải bấm.
+    # Thứ tiếng còn lại vẫn có nút loa để nghe đối chiếu.
+    uu_tien_mong = bool(kq.get("la_tieng_mong", True)) and bool(kq.get("audio_mong"))
+
     if kq.get("audio_mong"):
-        st.markdown("**🔊 Nghe bằng tiếng Mông**")
-        st.audio(kq["audio_mong"])
+        nut_loa(kq["audio_mong"], nhan="Nghe bằng tiếng Mông", tu_phat=uu_tien_mong)
         if kq.get("tang_tts") == "vi_phonetic":
             st.caption("Đây là giọng máy đọc phiên âm, chưa phải giọng Mông chuẩn.")
-    st.markdown("**🔊 Nghe bằng tiếng Việt**")
+
     if kq.get("audio_viet"):
-        st.audio(kq["audio_viet"])
+        nut_loa(kq["audio_viet"], nhan="Nghe bằng tiếng Việt",
+                tu_phat=not uu_tien_mong)
     else:
-        loa(kq.get("kich_ban", ""), chu_thich="")
+        loa(kq.get("kich_ban", ""), nhan="Nghe bằng tiếng Việt",
+            tu_phat=not uu_tien_mong)
 
     if kq.get("mong"):
         with st.expander("📖 Xem chữ tiếng Mông"):
@@ -308,14 +386,19 @@ def hien_ket_qua(kq: dict) -> None:
             st.text(f"RPA        : {kq['mong']['rpa']}")
             st.text(f"Phiên âm VN: {kq['mong']['vn']}")
 
-    with st.expander("⚖️ Căn cứ & đối chiếu (dành cho cán bộ)"):
+    # Các chỉ số kỹ thuật (phần trăm, thời gian xử lý, tên tầng giọng nói) CHỈ
+    # hiện khi có cán bộ đăng nhập. Màn hình của bà con tuyệt đối không có con số.
+    la_can_bo = bool(auth.nguoi_dang_nhap())
+
+    with st.expander("⚖️ Căn cứ pháp lý & đối chiếu tài liệu gốc"):
         st.caption(f"Mã thủ tục {tt.ma_thu_tuc} · cấp {tt.cap_thuc_hien}")
-        cot1, cot2 = st.columns(2)
-        cot1.metric("Độ tin cậy bản tóm tắt", f"{dg.get('do_tin_cay', 0):.0%}")
-        cot2.metric("Độ tin cậy phân loại", f"{tuyen.get('tin_cay_thu_tuc', 0):.0%}")
-        st.caption(f"Giọng Mông đã dùng: {NHAN_TANG.get(kq.get('tang_tts',''), '—')}")
-        if kq.get("_loi_mong"):
-            st.caption(f"Lỗi tiếng Mông: {kq['_loi_mong'][:200]}")
+        if la_can_bo:
+            cot1, cot2 = st.columns(2)
+            cot1.metric("Độ tin cậy bản tóm tắt", f"{dg.get('do_tin_cay', 0):.0%}")
+            cot2.metric("Độ tin cậy phân loại", f"{tuyen.get('tin_cay_thu_tuc', 0):.0%}")
+            st.caption(f"Giọng Mông đã dùng: {NHAN_TANG.get(kq.get('tang_tts',''), '—')}")
+            if kq.get("_loi_mong"):
+                st.caption(f"Lỗi tiếng Mông: {kq['_loi_mong'][:200]}")
         if dg.get("chua_ro"):
             st.warning("Tài liệu **không nêu rõ**: " + "; ".join(dg["chua_ro"]))
         for l in dg.get("luu_y", []):
@@ -335,9 +418,10 @@ def hien_ket_qua(kq: dict) -> None:
             st.download_button("⬇️ Tải file hướng dẫn gốc (PDF)",
                                tt.pdf_path.read_bytes(),
                                file_name=f"{tt.ma_thu_tuc}.pdf", mime="application/pdf")
-        tg = kq.get("thoi_gian", {})
-        st.caption("Thời gian xử lý: "
-                   + "  ·  ".join(f"{k} {v:.1f}s" for k, v in tg.items()))
+        if la_can_bo:
+            tg = kq.get("thoi_gian", {})
+            st.caption("Thời gian xử lý: "
+                       + "  ·  ".join(f"{k} {v:.1f}s" for k, v in tg.items()))
 
     nut_goi_can_bo(kq)
 
