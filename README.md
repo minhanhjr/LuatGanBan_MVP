@@ -1,6 +1,6 @@
 # LUẬT GẦN BẢN — MVP v2
 
-> "Không để khoảng cách số trở thành khoảng cách công lý"
+> "Chuyển đổi số: không để ai bị bỏ lại phía sau"
 > Học viện Hành chính và Quản trị Công
 
 Trợ lý pháp luật bằng giọng nói, giúp bà con dân tộc Mông làm thủ tục hành chính.

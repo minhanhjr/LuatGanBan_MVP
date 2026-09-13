@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """LUẬT GẦN BẢN — điểm vào duy nhất của ứng dụng.
-"Không để khoảng cách số trở thành khoảng cách công lý"
+"Chuyển đổi số: không để ai bị bỏ lại phía sau"
 
 File này chỉ làm 3 việc: dựng header, xử lý đăng nhập, và quyết định
 người đang dùng được vào những trang nào (st.navigation).
@@ -230,8 +230,8 @@ def header() -> None:
     st.markdown(
         f'<div class="lgb-header">{img}'
         f'<span class="lgb-ten">LUẬT GẦN BẢN</span>'
-        f'<span class="lgb-slogan">Không để khoảng cách số '
-        f'trở thành khoảng cách công lý</span></div>',
+        f'<span class="lgb-slogan">Chuyển đổi số: '
+        f'không để ai bị bỏ lại phía sau</span></div>',
         unsafe_allow_html=True,
     )
 
