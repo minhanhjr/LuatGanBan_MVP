@@ -48,7 +48,12 @@ st.markdown("""
   .stAppDeployButton,
   #MainMenu,
   footer,
-  [class*="viewerBadge"]            { display: none !important; }
+  [class*="viewerBadge"],
+  [class*="profileContainer"]        { display: none !important; }
+  /* Lưu ý: trên Streamlit Cloud, huy hiệu "Made with Streamlit" và ảnh đại diện
+     chủ app nằm ở TRANG BAO NGOÀI, không nằm trong iframe chạy app này, nên CSS
+     ở đây KHÔNG với tới được. Muốn màn hình sạch hoàn toàn thì mở app bằng địa
+     chỉ trần:  https://<ten-app>.streamlit.app/~/+/  */
 
   /* header trong suốt, không chiếm chiều cao */
   header[data-testid="stHeader"] {
@@ -86,21 +91,32 @@ st.markdown("""
   }
 
   /* ---------- khu ghi âm: nút micro tròn, to ---------- */
+  /* Khung ngoài. Phải nới chiều cao: mặc định Streamlit chỉ dành 68px cho cả
+     widget, nút 96px sẽ bị cắt cụt. */
   [data-testid="stAudioInput"] {
       display: flex !important; justify-content: center !important;
-      max-width: 560px; margin: 2px auto 6px auto !important;
+      height: auto !important; min-height: 240px !important;
+      overflow: visible !important;
+      max-width: 560px; margin: 0 auto !important;
   }
-  [data-testid="stAudioInput"] > div,
-  [data-testid="stAudioInput"] > div > div {
+  /* Khung trong — CHÍNH chỗ này cắt mất nút (height:68px + overflow:hidden).
+     Phải mở overflow và bỏ chiều cao cố định, nếu không nút chỉ hiện một vệt. */
+  [data-testid="stAudioInput"] > div {
       flex-direction: column !important;
       align-items: center !important;
-      justify-content: center !important;
-      gap: 12px !important;
+      justify-content: flex-start !important;
+      gap: 14px !important;
       width: 100% !important;
+      height: auto !important; min-height: 230px !important;
+      overflow: visible !important;
       border: none !important;
       background: transparent !important;
       box-shadow: none !important;
+      padding-top: 10px !important;
   }
+  [data-testid="stAudioInput"] > div > div { justify-content: center !important; }
+  /* thanh công cụ nhỏ hiện khi rê chuột vào widget — bà con không cần */
+  [data-testid="stAudioInput"] [data-testid="stElementToolbar"] { display: none !important; }
   [data-testid="stAudioInputActionButton"] {
       width: 96px !important; height: 96px !important;
       min-width: 96px !important; min-height: 96px !important;
