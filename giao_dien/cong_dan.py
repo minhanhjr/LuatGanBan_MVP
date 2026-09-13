@@ -471,18 +471,22 @@ st.markdown('</div>', unsafe_allow_html=True)
 # ==========================================================================
 # 5. THANH BÊN — chỉ dành cho cán bộ
 # ==========================================================================
-with st.sidebar:
-    st.divider()
-    st.markdown("### Trạng thái hệ thống")
-    tk = kb.thong_ke()
-    st.metric("Thủ tục trong kho", tk["so_thu_tuc"])
-    st.caption(f"Nhóm có dữ liệu: {tk['so_nhom']}  ·  "
-               f"{tk['tong_ky_tu']:,} ký tự văn bản gốc")
-    st.caption(f"Giọng Mông: `{TTS_HMONG_PROVIDER}`  ·  "
-               f"Ngưỡng tin cậy: {NGUONG_TU_TIN:.0%}")
-    if tk["thieu_pdf"]:
-        st.error(f"Thiếu PDF: {', '.join(tk['thieu_pdf'][:5])}")
-    if ss.danh_sach_yeu_cau:
-        st.markdown("### Phiếu chờ cán bộ")
-        for p in reversed(ss.danh_sach_yeu_cau[-5:]):
-            st.caption(f"{p['thoi_gian']} — {p['van_de']}")
+# Bảng trạng thái kỹ thuật chỉ dựng khi có cán bộ đăng nhập. Không chỉ ẩn bằng
+# CSS mà KHÔNG SINH RA phần tử, để trên màn hình của bà con không tồn tại bất kỳ
+# con số nào — kể cả khi có ai đó mở được thanh bên.
+if auth.nguoi_dang_nhap():
+    with st.sidebar:
+        st.divider()
+        st.markdown("### Trạng thái hệ thống")
+        tk = kb.thong_ke()
+        st.metric("Thủ tục trong kho", tk["so_thu_tuc"])
+        st.caption(f"Nhóm có dữ liệu: {tk['so_nhom']}  ·  "
+                   f"{tk['tong_ky_tu']:,} ký tự văn bản gốc")
+        st.caption(f"Giọng Mông: `{TTS_HMONG_PROVIDER}`  ·  "
+                   f"Ngưỡng tin cậy: {NGUONG_TU_TIN:.0%}")
+        if tk["thieu_pdf"]:
+            st.error(f"Thiếu PDF: {', '.join(tk['thieu_pdf'][:5])}")
+        if ss.danh_sach_yeu_cau:
+            st.markdown("### Phiếu chờ cán bộ")
+            for p in reversed(ss.danh_sach_yeu_cau[-5:]):
+                st.caption(f"{p['thoi_gian']} — {p['van_de']}")
