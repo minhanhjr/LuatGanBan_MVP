@@ -13,6 +13,7 @@ import base64
 from pathlib import Path
 
 import streamlit as st
+from streamlit.components.v1 import html as _html
 
 from core import auth
 
@@ -69,6 +70,11 @@ st.markdown("""
 
   /* kéo nội dung lên sát đỉnh vì header đã bị thu về 0 */
   .block-container { padding-top: 2.2rem !important; padding-bottom: 3rem !important; }
+
+  /* khung chứa đoạn JS dọn trang bao ở dưới: không được chiếm chỗ */
+  iframe[title="streamlit.components.v1.html"] {
+      height: 0 !important; border: 0 !important; display: block !important;
+  }
 
   /* ---------- header dự án: gom về MỘT dòng ---------- */
   .lgb-header {
@@ -166,6 +172,49 @@ st.markdown("""
   .lgb-phu [data-testid="stExpander"] summary p { font-size: 13px !important; color: #777 !important; }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ==========================================================================
+# DỌN TRANG BAO NGOÀI CỦA STREAMLIT CLOUD
+#
+# Khi mở bằng địa chỉ  https://<ten-app>.streamlit.app  thì app này KHÔNG phải
+# là trang gốc: Streamlit Cloud phục vụ một trang bao, rồi nhúng app vào trong
+# một iframe. Huy hiệu "Made with Streamlit", ảnh đại diện chủ app và nút
+# "Manage app" nằm ở TRANG BAO, nên CSS viết trong app không với tới được.
+#
+# Iframe đó cùng tên miền với trang bao và có cờ allow-same-origin, nên một
+# đoạn JS chạy trong app vẫn chạm được vào window.top. Đây là cách duy nhất
+# dọn sạch màn hình mà vẫn giữ nguyên địa chỉ gốc đã công bố.
+#
+# Chạy cục bộ (streamlit run app.py) thì không có trang bao, window.top chính
+# là app — đoạn mã chỉ thêm một thẻ style vô hại rồi thôi.
+# ==========================================================================
+_html("""
+<script>
+(function () {
+  function don() {
+    try {
+      var d = window.top.document;
+      if (d.getElementById('lgb-don-trang-bao')) return true;   // đã dọn rồi
+      var st = d.createElement('style');
+      st.id = 'lgb-don-trang-bao';
+      st.textContent =
+        '[class*="viewerBadge"],[class*="profileContainer"],' +
+        '[data-testid="manage-app-button"],[class*="manageAppButton"]' +
+        '{display:none !important;}';
+      d.head.appendChild(st);
+      return true;
+    } catch (e) {
+      return false;      // khác nguồn thì thôi, không làm gì cả
+    }
+  }
+  if (!don()) {          // trang bao có thể dựng xong sau app -> thử lại vài lần
+    var n = 0;
+    var t = setInterval(function () { if (don() || ++n > 20) clearInterval(t); }, 500);
+  }
+})();
+</script>
+""", height=0)
 
 
 @st.cache_data(show_spinner=False)
