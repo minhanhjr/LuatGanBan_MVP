@@ -51,6 +51,12 @@ st.markdown("""
         color: #003366 !important;
         font-weight: 600 !important;
     }
+
+    /* Tối ưu thanh chọn ngôn ngữ góc trên bên trái */
+    [data-testid="stSegmentedControl"] {
+        display: inline-flex !important;
+        justify-content: flex-start !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -61,12 +67,15 @@ st.markdown("<hr style='margin: 8px 0 15px 0;'>", unsafe_allow_html=True)
 # ==============================================================================
 # CƠ CHẾ LƯU TRỮ FILE CỨNG & QUẢN TRỊ NỘI DUNG GIỚI THIỆU
 # ==============================================================================
-# Xác định đường dẫn tuyệt đối đến file lưu trữ
 DATA_DIR = ROOT / "data"
 DATA_FILE = DATA_DIR / "gioi_thieu.md"
 
+# Đường dẫn đến các file âm thanh thu sẵn trong thư mục audio
+AUDIO_MONG_FILE = ROOT / "audio" / "gioi_thieu_mong.m4a"
+AUDIO_VI_FILE = ROOT / "audio" / "gioi_thieu_vi.m4a"
+
 def load_intro_content():
-    """Đọc nội dung từ file cứng, nếu chưa có thì trả về nội dung mặc định."""
+    """Đọc nội dung từ file cứng, nếu chưa có thì trả về nội dung chuẩn đầy đủ."""
     try:
         if DATA_FILE.exists():
             content = DATA_FILE.read_text(encoding="utf-8")
@@ -76,22 +85,50 @@ def load_intro_content():
         st.error(f"Lỗi đọc file: {e}")
         pass
     
-    # Nội dung mặc định nếu chưa có file
     return """<h2 style="text-align: center; color: #003366;">GIỚI THIỆU DỰ ÁN</h2>
 <h2 style="text-align: center; color: #003366;">LUẬT GẦN BẢN</h2>
 <p style="text-align: center;"><b>Trợ lý thủ tục hành chính bằng giọng nói tiếng mẹ đẻ cho đồng bào dân tộc thiểu số</b></p>
 <p style="text-align: center;"><i>“Chuyển đổi số: Không để ai bị bỏ lại phía sau”</i></p>
 <hr>
 <h3>I. Bối cảnh và bài toán xã hội</h3>
-<p>Trong tiến trình chuyển đổi số quốc gia, hạ tầng công nghệ và điện lưới đã cơ bản phủ sóng đến các bản làng vùng cao. Tuy nhiên, rào cản về ngôn ngữ và chữ viết vẫn là thách thức lớn đối với đồng bào khi thực hiện các thủ tục hành chính thiết yếu.</p>
+<p>Trong tiến trình chuyển đổi số quốc gia, hạ tầng công nghệ, điện lưới và điện thoại thông minh đã cơ bản phủ sóng đến các bản làng vùng cao. Tuy nhiên, một nghịch lý vẫn đang diễn ra tại bộ phận "Một cửa" của nhiều ủy ban nhân dân cấp xã: Người dân tộc thiểu số vẫn phải đi lại nhiều lần, thậm chí bỏ cuộc khi thực hiện các thủ tục hành chính thiết yếu như khai sinh, khai tử, kết hôn…</p>
+<p>Đề án nhận diện nguyên nhân cốt lõi không nằm ở khoảng cách địa lý hay sự thiếu hụt thiết bị, mà nằm ở một rào cản vô hình mang tên "ngôn ngữ và chữ viết". Cụ thể, người dân đang phải đối diện với 3 lớp rào cản chồng lấn lên nhau:</p>
+<ul>
+    <li><b>Rào cản về ngôn ngữ:</b> Toàn bộ văn bản pháp luật và biểu mẫu đều viết bằng tiếng Việt, trong khi một bộ phận lớn đồng bào (đặc biệt là phụ nữ và người lớn tuổi) giao tiếp chủ yếu bằng tiếng mẹ đẻ (ví dụ: tiếng Mông).</li>
+    <li><b>Rào cản về chữ viết:</b> Các giải pháp số hóa hiện tại đều mặc định người dùng có khả năng đọc hiểu trên màn hình, bỏ qua nhóm yếu thế đặc biệt là người dân tộc có tỷ lệ mù chữ cao.</li>
+    <li><b>Rào cản về thuật ngữ:</b> Kể cả khi biết chữ, những thuật ngữ pháp lý chuyên ngành vẫn là một thách thức lớn đối với nhận thức của người dân.</li>
+</ul>
+<p>Vấn đề này không chỉ gây thiệt thòi cho người dân mà còn tạo áp lực khổng lồ lên đội ngũ cán bộ tư pháp - hộ tịch. Họ liên tục phải dành thời gian giải thích lặp đi lặp lại một quy định bằng lời nói, đối mặt với rủi ro hướng dẫn sai và lãng phí thời gian khi phải trả lại hồ sơ thiếu sót.</p>
+
+<h3>II. Giải pháp Luật Gần Bản</h3>
+<p>Đánh giá trên tình hình thực tiễn, thay vì yêu cầu người dân phải học chữ để hiểu luật, Luật Gần Bản đảo ngược cách tiếp cận: Buộc hệ thống công nghệ phải học cách nói tiếng của người dân.</p>
+<p>Luật Gần Bản là một trợ lý ảo hỗ trợ tra cứu thủ tục hành chính, vận hành hoàn toàn bằng giọng nói và định vị đây là một "dự án âm thanh" chứ không phải dự án chữ viết.</p>
+<p>Trên phiên bản sản phẩm tối thiểu (MVP) mà bạn đang tiếp cận, giao diện được thiết kế tối giản hóa tuyệt đối để ngay cả người không biết chữ cũng có thể sử dụng:</p>
+<ul>
+    <li><b>Bước 1. Lựa chọn:</b> Chọn ngôn ngữ được hiển thị trên màn hình (“Tiếng Mông” hoặc “Tiếng Việt”)</li>
+    <li><b>Bước 2. Thao tác một chạm:</b> Người dùng nhấn vào biểu tượng Micro cỡ lớn ở trung tâm và nói ra nhu cầu của mình. (Ví dụ: “Tôi muốn làm giấy khai sinh cho con”).</li>
+    <li><b>Bước 3: Tiếp nhận thông tin và trả lời câu hỏi:</b> Hệ thống tự động phân tích nhu cầu, tra cứu quy định pháp luật, đưa ra câu trả lời đã được đơn giản hóa bằng văn bản và bản audio tiếng dân tộc để hướng dẫn người dân.</li>
+</ul>
+
+<h3>III. Cơ chế vận hành và tính bảo đảm</h3>
+<p>Đưa Trí tuệ nhân tạo (AI) vào lĩnh vực pháp luật luôn đi kèm rủi ro nghiêm trọng: Hệ thống có thể tự bịa đặt thông tin và hướng dẫn sai luật. Luật Gần Bản giải quyết rủi ro này bằng triết lý thiết kế: "Trí tuệ nhân tạo soạn thảo, con người ký duyệt". Dự án đảm bảo không có bất kỳ câu trả lời nào được phát ra cho người dân nếu chưa có một cán bộ đứng ra chịu trách nhiệm.</p>
+<p>Dưới góc độ kỹ thuật, hệ thống được cấu trúc thành 6 khối độc lập. Trong đó, điểm khác biệt tạo nên sự an toàn và tính đảm bảo về mặt pháp lý nằm ở khối Quản trị và kiểm duyệt dành riêng cho đội ngũ cán bộ.</p>
+<ul>
+    <li>Khi có một thủ tục mới được đưa vào kho dữ liệu, máy tính sẽ tự động diễn giải quy định pháp luật thành ngôn ngữ đời thường (bản nháp bị “khóa”, tuyệt đối không phát ra cho người dân).</li>
+    <li>Công chức tư pháp – hộ tịch sẽ truy cập vào Bảng điều khiển, đối chiếu bản gốc và bản máy soạn, trực tiếp chỉnh sửa câu chữ cho phù hợp với đặc thù địa phương rồi mới nhấn nút "Duyệt".</li>
+    <li>Chỉ khi có lệnh duyệt này, âm thanh mới được phát tới người dùng, kèm theo lưu vết vĩnh viễn tên cán bộ kiểm duyệt và thời gian thực hiện.</li>
+</ul>
+<p>Cơ chế này đảm bảo mọi phát ngôn của hệ thống đều có một chủ thể là con người chịu trách nhiệm công vụ, không để máy móc tự ý phát ngôn nhân danh cơ quan nhà nước.</p>
+
+<h3>IV. Tầm nhìn dài hạn</h3>
+<p>Mục tiêu hiện tại của dự án là giúp người dân có sự chuẩn bị chính xác nhất trước khi bước ra khỏi nhà, giảm tỷ lệ hồ sơ phải làm lại. Trong tương lai, đề án hướng tới tích hợp sâu với hạ tầng số quốc gia nhằm tạo ra chu trình khép kín: người dân nói tiếng mẹ đẻ, hệ thống tự động điền biểu mẫu, đọc lại xác nhận và kết nối VNeID để nộp hồ sơ thẳng lên Cổng Dịch vụ công quốc gia.</p>
+<p>Bằng sức mạnh của công nghệ vị nhân sinh, Luật Gần Bản cam kết hiện thực hóa thông điệp sâu sắc nhất của kỷ nguyên số: <i>“Chuyển đổi số: Không để ai bị bỏ lại phía sau”</i>.</p>
 """
 
 def save_intro_content(content):
     """Lưu vĩnh viễn nội dung vào file cứng."""
     try:
-        # Đảm bảo thư mục 'data' tồn tại trước khi lưu file
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        # Ghi đè nội dung mới vào file
         DATA_FILE.write_text(content, encoding="utf-8")
         return True
     except Exception as e:
@@ -176,7 +213,6 @@ def docx_to_exact_html(docx_file) -> str:
         st.error(f"Không thể đọc file Word: {e}")
         return ""
 
-# Tải nội dung vào Session State (Chỉ load 1 lần khi mở app)
 if "intro_content" not in st.session_state:
     st.session_state["intro_content"] = load_intro_content()
 
@@ -235,6 +271,36 @@ if u and u.get("vai_tro") == "admin":
     st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
 
 # ==============================================================================
+# THANH CHỌN NGÔN NGỮ (GÓC TRÊN BÊN TRÁI) & PHÁT ÂM THANH THEO TÙY CHỌN
+# ==============================================================================
+col_lang, col_space = st.columns([3, 7])
+with col_lang:
+    selected_lang = st.segmented_control(
+        "Chọn ngôn ngữ phát âm",
+        options=["🔊 Tiếng Việt", "🔊 Tiếng Mông"],
+        default=None,  # Không chọn sẵn, tránh tự động phát âm thanh khi mới vào trang
+        key="intro_language_selector",
+        label_visibility="collapsed"
+    )
+
+# Văn bản hiển thị chính luôn giữ nguyên tiếng Việt chuẩn
+display_content = st.session_state["intro_content"]
+
+# Xử lý phát âm thanh chính xác khi người dùng chủ động bấm chọn
+if selected_lang == "🔊 Tiếng Mông":
+    if AUDIO_MONG_FILE.exists():
+        st.audio(str(AUDIO_MONG_FILE), format="audio/mp4", autoplay=True)
+    else:
+        st.warning("⚠️ Đang cập nhật tệp âm thanh tiếng Mông tại thư mục `audio/gioi_thieu_mong.m4a`.")
+elif selected_lang == "🔊 Tiếng Việt":
+    if AUDIO_VI_FILE.exists():
+        st.audio(str(AUDIO_VI_FILE), format="audio/mp4", autoplay=True)
+    else:
+        st.info("💡 Để nghe bản đọc tiếng Việt, hãy đặt file âm thanh vào thư mục `audio/gioi_thieu_vi.m4a`.")
+
+st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+
+# ==============================================================================
 # HIỂN THỊ NỘI DUNG CHÍNH (Responsive mượt mà trên cả PC và Mobile)
 # ==============================================================================
 document_html = f"""
@@ -269,7 +335,7 @@ document_html = f"""
             margin-bottom: 10px !important;
             word-wrap: break-word;
         }}
-        p {{
+        p, li {{
             margin-bottom: 12px !important;
             word-wrap: break-word;
         }}
@@ -287,7 +353,7 @@ document_html = f"""
             text-align: left;
         }}
     </style>
-    {st.session_state["intro_content"]}
+    {display_content}
 </div>
 """
 
