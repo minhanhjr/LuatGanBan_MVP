@@ -49,12 +49,23 @@ if not kb.load_kb():
 
 
 # ==========================================================================
+# ĐIỀU HƯỚNG TRANG GIỚI THIỆU (Nút bấm tinh tế, gọn nhẹ)
+# ==========================================================================
+col_sp1, col_btn_gt, col_sp2 = st.columns([3, 1.4, 3])
+with col_btn_gt:
+    if st.button("📖 Giới thiệu dự án", use_container_width=True, help="Xem thông tin chi tiết và ý nghĩa dự án"):
+        st.switch_page("giao_dien/gioi_thieu.py")
+
+st.markdown("---")
+
+
+# ==========================================================================
 # HÀM CÓ CACHE (giảm độ trễ: lần 2 trở đi gần như tức thì)
 # ==========================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def _dinh_tuyen(cau_noi: str) -> dict:
     r = dinh_tuyen(cau_noi)
-    r["_key"] = r["thu_tuc"].key if r["thu_tuc"] else ""   # ThuTuc không hash được
+    r["_key"] = r["thu_tuc"].key if r["thu_tuc"] else ""    # ThuTuc không hash được
     r.pop("thu_tuc", None)
     return r
 
@@ -98,12 +109,7 @@ _SVG_DUNG = ('<svg width="34" height="34" viewBox="0 0 24 24" fill="white">'
 
 
 def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
-    """Nút loa tròn, màu xanh dương, bấm một cái là nghe.
-
-    Dùng component HTML riêng thay cho st.audio vì cần: nút tròn to cho người
-    lớn tuổi dễ bấm, và khả năng TỰ PHÁT ngay khi có kết quả.
-    Trả về False nếu không dựng được (không có file).
-    """
+    """Nút loa tròn, màu xanh dương, bấm một cái là nghe."""
     if not duong_dan:
         return False
     b64, mime = _audio_b64(str(duong_dan))
@@ -156,14 +162,12 @@ def loa(text: str, *, nhan: str = "Nghe", tu_phat: bool = False) -> None:
 
 
 # ==========================================================================
-# PIPELINE — mỗi bước cập nhật ngay khi xong, không chờ cả chuỗi
+# PIPELINE
 # ==========================================================================
 def _thong_diep_loi(e: Exception) -> str:
-    """Đổi lỗi kỹ thuật thành câu người thường đọc được."""
     if isinstance(e, LoiQuota):
         return ("Máy đang bận, bà con chờ vài phút rồi hỏi lại nhé. "
-                "Hoặc chọn thủ tục ở mục **Cách khác** cuối trang — "
-                "những việc đã có sẵn câu trả lời thì dùng được ngay.")
+                "Hoặc chọn thủ tục ở mục **Cách khác** cuối trang.")
     s = str(e)
     if "GEMINI_API_KEY" in s:
         return "Máy chưa được cài đặt xong. Bà con báo cán bộ giúp nhé."
@@ -206,12 +210,9 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True) -> dict:
         kq["thoi_gian"]["don_gian_hoa"] = time.perf_counter() - t
         kq["kich_ban"] = thanh_van_ban_doc(kq["don_gian"])
 
-        # Giọng đọc tiếng Việt: tạo sẵn để bà con chỉ việc bấm ▶, không phải
-        # bấm thêm một nút "tạo giọng" nữa.
         box.write("Đang chuẩn bị giọng đọc…")
         kq["audio_viet"] = _tts_vi(kq["kich_ban"])
 
-        # Bước dịch + giọng Mông KHÔNG sống còn: hỏng thì vẫn còn tiếng Việt.
         if phat_giong_mong:
             box.write("Đang dịch sang tiếng Mông…")
             t = time.perf_counter()
@@ -236,13 +237,12 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True) -> dict:
 def xu_ly_cau_noi(van_ban: str) -> None:
     ss.cau_noi = van_ban
     kq = chay_pipeline(van_ban)
-    # Nhớ bà con đang dùng tiếng gì, để lát nữa TỰ PHÁT đúng thứ tiếng đó.
     kq["la_tieng_mong"] = bool(ss.get("la_tieng_mong", True))
     ss.ket_qua = kq
 
 
 # ==========================================================================
-# 1. CHỌN TIẾNG — mặc định tiếng Mông
+# 1. CHỌN TIẾNG
 # ==========================================================================
 LUA_CHON = ["🔊 Tiếng Mông", "🔊 Tiếng Việt"]
 
@@ -251,7 +251,7 @@ if hasattr(st, "segmented_control"):
         "Bà con nói bằng tiếng gì?", LUA_CHON,
         default=LUA_CHON[0], label_visibility="collapsed",
     ) or LUA_CHON[0]
-else:                                    # Streamlit cũ: quay về radio
+else:
     ngon_ngu = st.radio("Bà con nói bằng tiếng gì?", LUA_CHON,
                         index=0, horizontal=True, label_visibility="collapsed")
 
@@ -259,7 +259,7 @@ la_tieng_mong = ngon_ngu.endswith("Mông")
 ss.la_tieng_mong = la_tieng_mong
 
 # ==========================================================================
-# 2. MỘT NÚT DUY NHẤT
+# 2. MỘT NÚT DUY NHẤT (ĐÃ SỬA NGƯỠNG ĐỂ NHẬN DIỆN MƯỢT MÀ CÂU NÓI NGẮN)
 # ==========================================================================
 st.markdown(
     '<div style="text-align:center;font-size:26px;font-weight:bold;'
@@ -269,12 +269,11 @@ st.markdown(
 
 audio_in = st.audio_input("Bấm micro để nói", label_visibility="collapsed")
 
-# Tự xử lý ngay khi có bản ghi MỚI. Dấu vân tay nội dung để không chạy lại
-# mỗi lần Streamlit vẽ lại trang.
 if audio_in is not None:
     raw = audio_in.getvalue()
     van_tay = hashlib.sha256(raw).hexdigest()[:16]
-    if van_tay != ss.audio_da_xu_ly and len(raw) > 2000:
+    # Hạ ngưỡng từ 2000 xuống 50 bytes để xử lý ngay cả câu nói ngắn gọn nhất
+    if van_tay != ss.audio_da_xu_ly and len(raw) > 50:
         ss.audio_da_xu_ly = van_tay
         with st.spinner("Đang nghe bà con nói…"):
             van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong)
@@ -289,8 +288,8 @@ if audio_in is not None:
                            else dich_sang_viet(van_ban))
             st.success(f"Bà con nói: *{van_ban}*")
             xu_ly_cau_noi(van_ban)
-    elif 0 < len(raw) <= 2000:
-        st.warning("Bà con bấm micro rồi nói lâu hơn một chút nhé.")
+    elif 0 < len(raw) <= 50:
+        st.warning("Bà con bấm micro rồi nói rõ hơn một chút nhé.")
 
 
 # ==========================================================================
@@ -323,7 +322,6 @@ def hien_ket_qua(kq: dict) -> None:
 
     tuyen, tt = kq["tuyen"], kq.get("thu_tuc")
 
-    # --- máy chưa chắc chắn: hỏi lại bằng lời, KHÔNG hiện phần trăm ---
     if tuyen["can_can_bo"] or tt is None:
         cau_hoi = (tuyen.get("cau_hoi_lam_ro")
                    or "Bà con muốn hỏi về việc gì ạ? Bà con nói rõ hơn giúp máy nhé.")
@@ -360,9 +358,6 @@ def hien_ket_qua(kq: dict) -> None:
         c2.markdown(f"💰 **Tiền:** {dg.get('bao_nhieu_tien','—')}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- NGHE CÂU TRẢ LỜI ---
-    # Bà con chọn tiếng nào thì thứ tiếng đó TỰ PHÁT ngay, không phải bấm.
-    # Thứ tiếng còn lại vẫn có nút loa để nghe đối chiếu.
     uu_tien_mong = bool(kq.get("la_tieng_mong", True)) and bool(kq.get("audio_mong"))
 
     if kq.get("audio_mong"):
@@ -386,8 +381,6 @@ def hien_ket_qua(kq: dict) -> None:
             st.text(f"RPA        : {kq['mong']['rpa']}")
             st.text(f"Phiên âm VN: {kq['mong']['vn']}")
 
-    # Các chỉ số kỹ thuật (phần trăm, thời gian xử lý, tên tầng giọng nói) CHỈ
-    # hiện khi có cán bộ đăng nhập. Màn hình của bà con tuyệt đối không có con số.
     la_can_bo = bool(auth.nguoi_dang_nhap())
 
     with st.expander("⚖️ Căn cứ pháp lý & đối chiếu tài liệu gốc"):
@@ -432,7 +425,7 @@ if ss.ket_qua:
 
 
 # ==========================================================================
-# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách. Đặt cuối trang, cỡ nhỏ.
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách
 # ==========================================================================
 st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
@@ -447,7 +440,7 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
                 placeholder="Ví dụ: Vợ tôi mới sinh con, tôi muốn làm giấy khai sinh",
                 height=90)
             if st.form_submit_button("Gửi câu hỏi", type="primary",
-                                     use_container_width=True) and txt.strip():
+                                       use_container_width=True) and txt.strip():
                 xu_ly_cau_noi(txt.strip())
                 st.rerun()
 
@@ -457,8 +450,7 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
                                  format_func=lambda k: DANH_MUC_THU_TUC[k])
         ds = kb.theo_nhom(nhom_chon)
         if not ds:
-            st.warning("Chưa có dữ liệu cho nhóm này. Nhóm đã có dữ liệu: "
-                       + ", ".join(sorted({n for t in kb.load_kb() for n in t.nhom})))
+            st.warning("Chưa có dữ liệu cho nhóm này.")
         else:
             tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
             if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
@@ -471,9 +463,6 @@ st.markdown('</div>', unsafe_allow_html=True)
 # ==========================================================================
 # 5. THANH BÊN — chỉ dành cho cán bộ
 # ==========================================================================
-# Bảng trạng thái kỹ thuật chỉ dựng khi có cán bộ đăng nhập. Không chỉ ẩn bằng
-# CSS mà KHÔNG SINH RA phần tử, để trên màn hình của bà con không tồn tại bất kỳ
-# con số nào — kể cả khi có ai đó mở được thanh bên.
 if auth.nguoi_dang_nhap():
     with st.sidebar:
         st.divider()
