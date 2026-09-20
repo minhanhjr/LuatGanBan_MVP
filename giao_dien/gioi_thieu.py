@@ -61,18 +61,22 @@ st.markdown("<hr style='margin: 8px 0 15px 0;'>", unsafe_allow_html=True)
 # ==============================================================================
 # CƠ CHẾ LƯU TRỮ FILE CỨNG & QUẢN TRỊ NỘI DUNG GIỚI THIỆU
 # ==============================================================================
-DATA_FILE = ROOT / "data/gioi_thieu.md"
+# Xác định đường dẫn tuyệt đối đến file lưu trữ
+DATA_DIR = ROOT / "data"
+DATA_FILE = DATA_DIR / "gioi_thieu.md"
 
 def load_intro_content():
+    """Đọc nội dung từ file cứng, nếu chưa có thì trả về nội dung mặc định."""
     try:
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                content = f.read()
-                if content.strip():
-                    return content
-    except Exception:
+        if DATA_FILE.exists():
+            content = DATA_FILE.read_text(encoding="utf-8")
+            if content.strip():
+                return content
+    except Exception as e:
+        st.error(f"Lỗi đọc file: {e}")
         pass
     
+    # Nội dung mặc định nếu chưa có file
     return """<h2 style="text-align: center; color: #003366;">GIỚI THIỆU DỰ ÁN</h2>
 <h2 style="text-align: center; color: #003366;">LUẬT GẦN BẢN</h2>
 <p style="text-align: center;"><b>Trợ lý thủ tục hành chính bằng giọng nói tiếng mẹ đẻ cho đồng bào dân tộc thiểu số</b></p>
@@ -83,16 +87,19 @@ def load_intro_content():
 """
 
 def save_intro_content(content):
+    """Lưu vĩnh viễn nội dung vào file cứng."""
     try:
-        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            f.write(content)
+        # Đảm bảo thư mục 'data' tồn tại trước khi lưu file
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # Ghi đè nội dung mới vào file
+        DATA_FILE.write_text(content, encoding="utf-8")
         return True
     except Exception as e:
         st.error(f"Lỗi khi lưu tệp hệ thống: {e}")
         return False
 
 def docx_to_exact_html(docx_file) -> str:
+    """Chuyển đổi file Docx thành mã HTML."""
     try:
         import docx
         from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -169,6 +176,7 @@ def docx_to_exact_html(docx_file) -> str:
         st.error(f"Không thể đọc file Word: {e}")
         return ""
 
+# Tải nội dung vào Session State (Chỉ load 1 lần khi mở app)
 if "intro_content" not in st.session_state:
     st.session_state["intro_content"] = load_intro_content()
 
