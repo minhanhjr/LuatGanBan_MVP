@@ -23,7 +23,7 @@ st.set_page_config(page_title="Luật Gần Bản", page_icon="⚖️",
                    layout="centered", initial_sidebar_state="collapsed")
 
 # ==========================================================================
-# GIAO DIỆN CHUNG & TỐI ƯU HIỆU NĂNG GIAO DIỆN (Render HTML gốc siêu tốc)
+# GIAO DIỆN CHUNG 
 # ==========================================================================
 # SỬ DỤNG st.html() thay vì st.markdown() để bỏ qua bộ phân tích Markdown, tăng tốc độ render UI
 st.html("""
@@ -152,7 +152,7 @@ with col_dang_nhap:
 st.html("<hr style='margin: 8px 0 15px 0;'>")
 
 
-# ============================================================ ĐIỀU HƯỚNG
+# ==========ĐIỀU HƯỚNG============================
 if not hasattr(st, "navigation") or not hasattr(st, "Page"):
     st.error(
         "Phiên bản Streamlit đang cài quá cũ (cần từ **1.36** trở lên).\n\n"
