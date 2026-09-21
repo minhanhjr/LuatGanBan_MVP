@@ -9,18 +9,12 @@
 # Không cần GPU. Không cần cơ sở dữ liệu. Toàn bộ dữ liệu là tệp phẳng nằm
 # sẵn trong ảnh; chỉ thư mục data/cache cần ghi được nên gắn volume riêng.
 
-FROM python:3.11-slim
+FROM python:3.11-slim-bullseye
 
-# Múi giờ Việt Nam để dấu thời gian kiểm duyệt hiển thị đúng
 ENV TZ=Asia/Ho_Chi_Minh \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata curl \
- && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
- && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -39,7 +33,7 @@ USER lgb
 EXPOSE 8501
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD curl -fsS http://localhost:8501/_stcore/health || exit 1
+  CMD python3 -c "import urllib.request as u; u.urlopen('http://localhost:8501/_stcore/health')" || exit 1
 
 CMD ["streamlit", "run", "app.py", \
      "--server.port=8501", \
