@@ -111,6 +111,42 @@ def header() -> None:
 
 
 # ==========================================================================
+# DANH SÁCH TRANG (tạo một lần, dùng chung cho điều hướng và nút chuyển trang)
+# ==========================================================================
+if not hasattr(st, "navigation") or not hasattr(st, "Page"):
+    st.error(
+        "Phiên bản Streamlit đang cài quá cũ (cần từ **1.36** trở lên).\n\n"
+        "Mở terminal ở thư mục dự án và chạy:\n\n"
+        "```\npip install -U streamlit\n```"
+    )
+    st.stop()
+
+TRANG_HOI_DAP = st.Page("giao_dien/cong_dan.py", title="Hỏi đáp thủ tục",
+                        icon=":material/record_voice_over:", default=True)
+TRANG_GIOI_THIEU = st.Page("giao_dien/gioi_thieu.py", title="Giới thiệu dự án",
+                           icon=":material/info:")
+TRANG_QUAN_TRI = st.Page("giao_dien/quan_tri.py", title="Quản trị kho",
+                         icon=":material/settings:")
+TRANG_TAI_KHOAN = st.Page("giao_dien/tai_khoan.py", title="Tài khoản & phân quyền",
+                          icon=":material/manage_accounts:")
+
+
+def duoc_vao_quan_tri() -> bool:
+    u = auth.nguoi_dang_nhap()
+    return bool(u) and (auth.la_admin() or bool(auth.quyen_cua(u)))
+
+
+def nut_chuyen_trang_can_bo() -> None:
+    """Các nút đi tới trang dành cho cán bộ. Thanh bên đã bị ẩn nên đây là
+    đường duy nhất để vào trang quản trị sau khi đăng nhập."""
+    st.page_link(TRANG_HOI_DAP, label="Trang hỏi đáp")
+    if duoc_vao_quan_tri():
+        st.page_link(TRANG_QUAN_TRI, label="Quản trị kho")
+    if auth.la_admin():
+        st.page_link(TRANG_TAI_KHOAN, label="Tài khoản & phân quyền")
+
+
+# ==========================================================================
 # GIAO DIỆN HEADER & POPOVER ĐĂNG NHẬP TỐI GIẢN (GÓC TRÊN BÊN PHẢI)
 # ==========================================================================
 auth.khoi_tao_mac_dinh()  # Khởi tạo tài khoản mặc định lần đầu
@@ -130,6 +166,7 @@ with col_dang_nhap:
             st.caption(f"{'Quản trị viên' if u['vai_tro'] == 'admin' else 'Cán bộ'}")
             if u.get("phai_doi_mk"):
                 st.warning("Cần đổi mật khẩu.", icon="🔑")
+            nut_chuyen_trang_can_bo()
             if st.button("Đăng xuất", use_container_width=True, key="btn_dx_popover"):
                 del st.session_state["nguoi_dung"]
                 st.rerun()
@@ -149,33 +186,35 @@ with col_dang_nhap:
                     else:
                         st.error("Sai tài khoản/mật khẩu.")
 
+# Cán bộ đã đăng nhập: hiện hàng nút chuyển trang ngay dưới header
+if auth.nguoi_dang_nhap():
+    st.html("""<style>
+      .st-key-lgb-nut-can-bo [data-testid="stPageLink"] { min-width: 0 !important; padding: 5px 14px !important; }
+      .st-key-lgb-nut-can-bo [data-testid="stPageLink"] span { font-size: 14px !important; }
+    </style>""")
+    try:
+        khung_nut = st.container(key="lgb-nut-can-bo")
+    except TypeError:                     # Streamlit cũ chưa có tham số key
+        khung_nut = st.container()
+    cot_nut = khung_nut.columns(3)
+    with cot_nut[0]:
+        st.page_link(TRANG_HOI_DAP, label="Trang hỏi đáp")
+    if duoc_vao_quan_tri():
+        with cot_nut[1]:
+            st.page_link(TRANG_QUAN_TRI, label="Quản trị kho")
+    if auth.la_admin():
+        with cot_nut[2]:
+            st.page_link(TRANG_TAI_KHOAN, label="Tài khoản")
+
 st.html("<hr style='margin: 8px 0 15px 0;'>")
 
 
 # ==========ĐIỀU HƯỚNG============================
-if not hasattr(st, "navigation") or not hasattr(st, "Page"):
-    st.error(
-        "Phiên bản Streamlit đang cài quá cũ (cần từ **1.36** trở lên).\n\n"
-        "Mở terminal ở thư mục dự án và chạy:\n\n"
-        "```\npip install -U streamlit\n```"
-    )
-    st.stop()
-
-# Khai báo danh sách trang trong hệ thống
-trang = [
-    st.Page("giao_dien/cong_dan.py", title="Hỏi đáp thủ tục",
-             icon=":material/record_voice_over:", default=True),
-    st.Page("giao_dien/gioi_thieu.py", title="Giới thiệu dự án",
-             icon=":material/info:")
-]
-
-u = auth.nguoi_dang_nhap()
-if u and (auth.la_admin() or auth.quyen_cua(u)):
-    trang.append(st.Page("giao_dien/quan_tri.py", title="Quản trị kho",
-                         icon=":material/settings:"))
+trang = [TRANG_HOI_DAP, TRANG_GIOI_THIEU]
+if duoc_vao_quan_tri():
+    trang.append(TRANG_QUAN_TRI)
 if auth.la_admin():
-    trang.append(st.Page("giao_dien/tai_khoan.py", title="Tài khoản & phân quyền",
-                         icon=":material/manage_accounts:"))
+    trang.append(TRANG_TAI_KHOAN)
 
 # Chạy điều hướng ẩn sidebar, quản lý các trang thông qua nút điều hướng trong giao diện
 st.navigation(trang, position="hidden").run()

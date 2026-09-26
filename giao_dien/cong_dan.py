@@ -24,9 +24,10 @@ import streamlit as st
 from streamlit.components.v1 import html as _html
 
 from core import auth, kb
-from core.config import (BAT_TIENG_TAY, DANH_MUC_THU_TUC, HMONG_ORTHOGRAPHY,
+from core.config import (DANH_MUC_THU_TUC, HMONG_ORTHOGRAPHY,
                          NGUONG_TU_TIN, TTS_HMONG_PROVIDER)
 from core.llm import LoiQuota, chon_model
+from core import ngon_ngu as NN
 from core.router import dinh_tuyen
 from core.simplify import CAU_HOI_MAC_DINH, don_gian_hoa, thanh_van_ban_doc
 from core.stt import nghe
@@ -228,7 +229,7 @@ def _them_tieng_mong(box, kq: dict, tt, *, la_tieng_chon: bool) -> None:
         kq["_loi_mong"] = str(e)
 
 
-def _them_tieng_tay(box, kq: dict, *, la_tieng_chon: bool) -> None:
+def _them_tieng_tay(box, kq: dict, tt=None, *, la_tieng_chon: bool) -> None:
     box.write("Đang dịch sang tiếng Tày…")
     t = time.perf_counter()
     try:
@@ -250,11 +251,23 @@ def _them_tieng_tay(box, kq: dict, *, la_tieng_chon: bool) -> None:
         kq["_loi_tay"] = str(e)
 
 
+# Mỗi tiếng dân tộc một hàm: dịch bản tiếng Việt rồi tạo file đọc.
+# Thêm tiếng mới: viết hàm _them_tieng_xxx cùng kiểu rồi đăng ký ở đây
+# (và thêm vào core/ngon_ngu.py).
+_XU_LY_TIENG = {
+    "mong": _them_tieng_mong,
+    "tay": _them_tieng_tay,
+}
+
+
 def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
-                  ngon_ngu_chon: str = "mong") -> dict:
-    """Kết quả luôn có đủ các tiếng (Việt, Mông, Tày nếu bật).
-    ngon_ngu_chon ('mong' | 'tay' | 'viet') quyết định tiếng nào làm trước
-    và tiếng nào được báo lỗi nếu hỏng."""
+                  ngon_ngu_chon: str = "mong",
+                  cac_tieng: list[str] | None = None) -> dict:
+    """cac_tieng: các tiếng bà con muốn nghe, theo thứ tự đã chọn.
+    ngon_ngu_chon: tiếng bà con nói (tiếng đầu tiên) — được báo lỗi nếu hỏng.
+    Tiếng Việt luôn có vì là bản gốc, không tốn thêm lượt dịch."""
+    if cac_tieng is None:
+        cac_tieng = [ngon_ngu_chon]
     t0 = time.perf_counter()
     kq: dict = {"cau_noi": cau_noi, "thoi_gian": {}}
 
@@ -292,14 +305,10 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
         kq["audio_viet"] = _tts_vi(kq["kich_ban"])
 
         if phat_giong_mong:
-            cac_tieng = ["mong", "tay"] if BAT_TIENG_TAY else ["mong"]
-            if ngon_ngu_chon == "tay" and BAT_TIENG_TAY:
-                cac_tieng = ["tay", "mong"]          # tiếng bà con chọn làm trước
-            for ma in cac_tieng:
-                if ma == "mong":
-                    _them_tieng_mong(box, kq, tt, la_tieng_chon=ngon_ngu_chon == "mong")
-                else:
-                    _them_tieng_tay(box, kq, la_tieng_chon=ngon_ngu_chon == "tay")
+            for ma in cac_tieng:                  # chỉ dịch những tiếng đã chọn
+                xu_ly = _XU_LY_TIENG.get(ma)
+                if xu_ly:
+                    xu_ly(box, kq, tt, la_tieng_chon=(ma == ngon_ngu_chon))
 
         kq["thoi_gian"]["tong"] = time.perf_counter() - t0
         box.update(label="Đã có hướng dẫn cho bà con", state="complete", expanded=False)
@@ -309,32 +318,51 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
 def xu_ly_cau_noi(van_ban: str) -> None:
     ss.cau_noi = van_ban
     ma = ss.get("ma_ngon_ngu", "mong")
-    kq = chay_pipeline(van_ban, ngon_ngu_chon=ma)
-    kq["la_tieng_mong"] = bool(ss.get("la_tieng_mong", True))
+    cac = list(ss.get("cac_ngon_ngu") or [ma])
+    kq = chay_pipeline(van_ban, ngon_ngu_chon=ma, cac_tieng=cac)
+    kq["la_tieng_mong"] = ma == "mong"
     kq["ma_ngon_ngu"] = ma
+    kq["cac_ngon_ngu"] = cac
     ss.ket_qua = kq
 
 
 # ==========================================================================
 # 1. CHỌN TIẾNG
 # ==========================================================================
-_MA_THEO_NHAN = {"🔊 Tiếng Mông": "mong", "🔊 Tiếng Tày": "tay", "🔊 Tiếng Việt": "viet"}
-LUA_CHON = ["🔊 Tiếng Mông", "🔊 Tiếng Tày", "🔊 Tiếng Việt"] if BAT_TIENG_TAY \
-    else ["🔊 Tiếng Mông", "🔊 Tiếng Việt"]
+_DS_TIENG = NN.dang_dung()
+_MA_THEO_NHAN = {n.nhan: n.ma for n in _DS_TIENG}
+_MAC_DINH = [n.nhan for n in _DS_TIENG if n.ma in NN.MAC_DINH] or [_DS_TIENG[0].nhan]
 
-if hasattr(st, "segmented_control"):
-    ngon_ngu = st.segmented_control(
-        "Bà con nói bằng tiếng gì?", LUA_CHON,
-        default=LUA_CHON[0], label_visibility="collapsed",
-    ) or LUA_CHON[0]
-else:
-    ngon_ngu = st.radio("Bà con nói bằng tiếng gì?", LUA_CHON,
-                        index=0, horizontal=True, label_visibility="collapsed")
+st.html("""<style>
+  .st-key-lgb-chon-tieng { max-width: 560px; margin: 0 auto; }
+  .st-key-lgb-chon-tieng label p { font-size: 18px !important; font-weight: bold !important;
+                                   color: #003366 !important; text-align: center; }
+  .st-key-lgb-chon-tieng [data-baseweb="select"] > div { min-height: 52px; font-size: 18px; }
+  .st-key-lgb-chon-tieng [data-baseweb="tag"] { font-size: 17px !important; height: auto !important;
+                                               padding: 6px 10px !important; }
+</style>""")
+try:
+    _khung_chon = st.container(key="lgb-chon-tieng")
+except TypeError:                          # Streamlit cũ chưa có tham số key
+    _khung_chon = st.container()
 
-ma_ngon_ngu = _MA_THEO_NHAN.get(ngon_ngu, "mong")
+chon = _khung_chon.multiselect(
+    "Bà con nghe bằng tiếng gì? (chọn được nhiều tiếng)",
+    options=list(_MA_THEO_NHAN),
+    default=_MAC_DINH,
+    key="chon_ngon_ngu",
+    placeholder="Bấm vào đây để chọn tiếng",
+    help="Tiếng chọn đầu tiên là tiếng bà con nói. Các tiếng sau để nghe thêm.",
+)
+if not chon:
+    _khung_chon.caption("Chưa chọn tiếng nào, máy sẽ dùng tiếng Việt.")
+
+cac_ngon_ngu = [_MA_THEO_NHAN[x] for x in chon] or [NN.MA_TIENG_VIET]
+ma_ngon_ngu = cac_ngon_ngu[0]              # tiếng đầu tiên = tiếng bà con nói
 la_tieng_mong = ma_ngon_ngu == "mong"
 ss.la_tieng_mong = la_tieng_mong
 ss.ma_ngon_ngu = ma_ngon_ngu
+ss.cac_ngon_ngu = cac_ngon_ngu
 
 # ==========================================================================
 # 2. MỘT NÚT DUY NHẤT (ĐÃ SỬA NGƯỠNG ĐỂ NHẬN DIỆN MƯỢT MÀ CÂU NÓI NGẮN)
@@ -441,18 +469,29 @@ def hien_ket_qua(kq: dict) -> None:
         c2.markdown(f"💰 **Tiền:** {dg.get('bao_nhieu_tien','—')}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Mỗi tiếng một nút loa. Tiếng bà con đã chọn đứng đầu và tự phát.
+    # Mỗi tiếng đã chọn một nút loa, theo đúng thứ tự bà con chọn.
+    # Tiếng đầu tiên tự phát; tiếng Việt luôn có ở cuối làm bản gốc.
     ma_chon = kq.get("ma_ngon_ngu") or ("mong" if kq.get("la_tieng_mong", True) else "viet")
+    cac_ma = list(kq.get("cac_ngon_ngu") or [ma_chon])
+    if NN.MA_TIENG_VIET not in cac_ma:
+        cac_ma.append(NN.MA_TIENG_VIET)
+
+    def _ghi_chu(ma: str) -> str:
+        if ma == "mong" and kq.get("tang_tts") == "vi_phonetic":
+            return "Giọng máy đọc tiếng dân tộc thiểu số."
+        if ma == "tay":
+            return "Giọng máy đọc tiếng dân tộc thiểu số."
+        return ""
+
     cac_loa = []
-    if kq.get("audio_mong"):
-        cac_loa.append(("mong", kq["audio_mong"], "Nghe bằng tiếng Mông",
-                        "Giọng máy đọc tiếng dân tộc thiểu số."
-                        if kq.get("tang_tts") == "vi_phonetic" else ""))
-    if kq.get("audio_tay"):
-        cac_loa.append(("tay", kq["audio_tay"], "Nghe bằng tiếng Tày",
-                        "Giọng máy đọc tiếng dân tộc thiểu số."))
-    cac_loa.append(("viet", kq.get("audio_viet", ""), "Nghe bằng tiếng Việt", ""))
-    cac_loa.sort(key=lambda x: x[0] != ma_chon)          # sort ổn định: tiếng chọn lên đầu
+    for ma in cac_ma:
+        nn = NN.theo_ma(ma)
+        duong_dan = kq.get(f"audio_{ma}", "")
+        if ma != NN.MA_TIENG_VIET and not duong_dan:
+            continue                     # tiếng này dịch/đọc hỏng -> không hiện nút
+        ten = nn.ten if nn else ma
+        cac_loa.append((ma, duong_dan, f"Nghe bằng {ten[:1].lower()}{ten[1:]}",
+                        _ghi_chu(ma)))
 
     co_tieng_chon = any(ma == ma_chon for ma, *_ in cac_loa)
     tieng_tu_phat = ma_chon if co_tieng_chon else "viet"  # tiếng chọn hỏng -> phát tiếng Việt
