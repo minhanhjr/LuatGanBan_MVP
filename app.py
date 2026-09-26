@@ -44,7 +44,9 @@ st.html("""
   /* Phông chữ chung */
   .stApp, p, h1, h2, h3, h4, h5, h6, label, button, input, .stMarkdown, .stText, .stTextArea { font-family: 'Times New Roman', Times, serif !important; }
   /* Biểu tượng Material là chữ ghép (ligature): nếu bị ép sang Times New Roman sẽ hiện ra chữ "settings"... thay vì hình.
-     Quy tắc cho nút chuyển trang ở trên nhắm vào mọi <span>, nên phải khai báo lại với độ ưu tiên cao hơn. */
+     Quy tắc cho nút chuyển trang ở trên nhắm vào mọi thẻ span, nên phải khai báo lại với độ ưu tiên cao hơn.
+     LƯU Ý: không viết dấu "nhỏ hơn" liền chữ cái trong khối style này — bộ lọc HTML của Streamlit (DOMPurify)
+     sẽ xoá CẢ khối style, làm mất toàn bộ giao diện. */
   [data-testid="stPageLink"] [data-testid="stIconMaterial"] { font-family: 'Material Symbols Rounded','Material Icons',sans-serif !important; font-weight: normal !important; letter-spacing: normal !important; }
   [data-testid="stExpanderToggleIcon"], [data-testid="stIconMaterial"], [data-testid="stFileUploadDropzone"] span, .st-icon, .material-icons, .material-symbols-rounded { font-family: 'Material Symbols Rounded','Material Icons',sans-serif !important; }
 
@@ -56,11 +58,11 @@ st.html("""
   iframe[title="streamlit.components.v1.html"][height="0"] { height: 0 !important; display: block !important; }
 
   /* Header dự án gọn gàng */
-  .lgb-header { display: inline-flex; align-items: center; gap: 8px; margin: 0 !important; padding: 0 !important; }
-  .lgb-header img { width: 32px; height: 32px; object-fit: contain; flex-shrink: 0; }
-  .lgb-ten { color: #003366; font-size: 17px; font-weight: bold; letter-spacing: .2px; white-space: nowrap; }
-  .lgb-slogan { color: #666; font-size: 11.5px; font-style: italic; border-left: 1px solid #ccc; padding-left: 8px; margin-left: 4px; }
-  @media (max-width: 640px) { .lgb-slogan { display: none; } .lgb-ten { font-size: 15px; } }
+  .lgb-header { display: inline-flex; align-items: center; gap: 6px; margin: 0 !important; padding: 0 !important; line-height: 1.2; }
+  .lgb-header img { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
+  .lgb-ten { color: #003366; font-size: 15px; font-weight: bold; letter-spacing: .2px; white-space: nowrap; }
+  .lgb-slogan { color: #777; font-size: 10.5px; font-style: italic; border-left: 1px solid #ccc; padding-left: 6px; margin-left: 2px; }
+  @media (max-width: 640px) { .lgb-slogan { display: none; } .lgb-ten { font-size: 14px; } }
 
   /* Khu ghi âm - Nút micro */
   [data-testid="stAudioInput"] { display: flex !important; justify-content: center !important; height: auto !important; min-height: 240px !important; overflow: visible !important; max-width: 560px; margin: 0 auto !important; }
@@ -105,7 +107,8 @@ def _logo_b64() -> str:
 def header() -> None:
     """Header một dòng — nhường toàn bộ màn hình cho nút micro."""
     b64 = _logo_b64()
-    img = (f'<img src="data:image/png;base64,{b64}" alt="">' if b64 else "")
+    img = (f'<img src="data:image/png;base64,{b64}" alt="" width="26" height="26" '
+           f'style="width:26px;height:26px;object-fit:contain;">' if b64 else "")
     st.html(
         f'<div class="lgb-header">{img}'
         f'<span class="lgb-ten">LUẬT GẦN BẢN</span>'
