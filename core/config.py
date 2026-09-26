@@ -71,6 +71,12 @@ TRANSLATE_PROVIDER = os.getenv("LGB_TRANSLATE", "gemini")
 # Chính tả tiếng Mông dùng để HIỂN THỊ: 'rpa' (quốc tế) hoặc 'vn' (kiểu Việt Nam)
 HMONG_ORTHOGRAPHY = os.getenv("LGB_HMONG_ORTHO", "vn")
 
+# -------------------------------------------------------------- Tiếng Tày
+# Bản demo: dịch bằng Gemini sang chữ Tày–Nùng hệ Latinh, rồi đọc bằng giọng
+# tiếng Việt (chữ Tày dùng dấu thanh như tiếng Việt nên đọc xấp xỉ được).
+# Chưa có người Tày duyệt thuật ngữ / thu âm. Đặt LGB_TIENG_TAY=0 để ẩn hẳn.
+BAT_TIENG_TAY = os.getenv("LGB_TIENG_TAY", "1") != "0"
+
 # ---------------------------------------------------------------- Nhóm TTHC
 DANH_MUC_THU_TUC = {
     "KHAI_SINH": "ĐĂNG KÝ KHAI SINH",

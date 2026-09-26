@@ -153,7 +153,17 @@ def phat_tieng_mong(
     return None, "that_bai"
 
 
+def phat_tieng_tay(text_tay: str) -> tuple[Path | None, str]:
+    """Tiếng Tày (bản demo): chưa có TTS tiếng Tày nào. Chữ Tày–Nùng hệ Latinh
+    dùng dấu thanh như tiếng Việt, nên giọng tiếng Việt đọc xấp xỉ được."""
+    if not (text_tay or "").strip():
+        return None, "off"
+    p = tts_tieng_viet(text_tay, tag="tay")
+    return (p, "vi_doc_tay") if p else (None, "that_bai")
+
+
 NHAN_TANG = {
+    "vi_doc_tay": "🔤 Giọng máy tiếng Việt đọc chữ Tày (bản thử)",
     "audio_bank": "🎙️ Giọng người Mông thu sẵn",
     "local_neural": "🤖 Giọng máy (model tiếng Mông)",
     "vi_phonetic": "🔤 Giọng máy đọc phiên âm (tạm thời, chưa chuẩn)",

@@ -24,14 +24,15 @@ import streamlit as st
 from streamlit.components.v1 import html as _html
 
 from core import auth, kb
-from core.config import (DANH_MUC_THU_TUC, HMONG_ORTHOGRAPHY, NGUONG_TU_TIN,
-                         TTS_HMONG_PROVIDER)
-from core.llm import LoiQuota
+from core.config import (BAT_TIENG_TAY, DANH_MUC_THU_TUC, HMONG_ORTHOGRAPHY,
+                         NGUONG_TU_TIN, TTS_HMONG_PROVIDER)
+from core.llm import LoiQuota, chon_model
 from core.router import dinh_tuyen
 from core.simplify import CAU_HOI_MAC_DINH, don_gian_hoa, thanh_van_ban_doc
 from core.stt import nghe
-from core.translate import dich_sang_mong, dich_sang_viet
-from core.tts import NHAN_TANG, phat_tieng_mong, tts_tieng_viet
+from core.translate import (dich_sang_mong, dich_sang_tay, dich_sang_viet,
+                            dich_tay_sang_viet)
+from core.tts import NHAN_TANG, phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
 
 ss = st.session_state
 ss.setdefault("danh_sach_yeu_cau", [])
@@ -78,6 +79,14 @@ def _don_gian_hoa(key: str, cau_hoi: str) -> dict:
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def _dich_mong(text: str) -> dict:
     return dich_sang_mong(text)
+
+
+PHIEN_BAN_DICH_TAY = 2          # tăng số này khi đổi cách dịch -> bỏ cache cũ
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _dich_tay(text: str, phien_ban: int = PHIEN_BAN_DICH_TAY) -> str:
+    return dich_sang_tay(text)
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
@@ -138,11 +147,36 @@ def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
       tt=document.getElementById('tt');
   var LOA=`{_SVG_LOA}`, DUNG=`{_SVG_DUNG}`;
   function ve(dangPhat){{ b.innerHTML = dangPhat ? DUNG : LOA; }}
+
+  // Chỉ một loa được phát tại một thời điểm: loa này bắt đầu đọc thì
+  // các loa khác (Việt / Mông / Tày) phải im.
+  var ID = Math.random().toString(36).slice(2);
+  var kenh = null;
+  try {{ kenh = new BroadcastChannel('lgb-loa'); }} catch(e) {{}}
+  if (kenh) {{
+    kenh.onmessage = function(ev){{ if (ev.data !== ID && !a.paused) {{ a.pause(); }} }};
+  }}
+  function imCacLoaKhac(){{
+    if (kenh) {{ try {{ kenh.postMessage(ID); }} catch(e) {{}} }}
+    // Dự phòng khi trình duyệt không có BroadcastChannel: dừng trực tiếp
+    try {{
+      var ds = [];
+      var khung = window.parent.document.querySelectorAll('iframe');
+      for (var i = 0; i < khung.length; i++) {{
+        try {{
+          var d = khung[i].contentDocument;
+          if (d && d !== document) {{ ds = ds.concat([].slice.call(d.querySelectorAll('audio'))); }}
+        }} catch(e) {{}}
+      }}
+      ds = ds.concat([].slice.call(window.parent.document.querySelectorAll('audio')));
+      ds.forEach(function(x){{ if (x !== a && !x.paused) {{ x.pause(); }} }});
+    }} catch(e) {{}}
+  }}
   ve(false);
   b.onclick=function(){{ if(a.paused){{a.play();}} else {{a.pause();}} }};
   b.onmousedown=function(){{ b.style.transform='scale(.94)'; }};
   b.onmouseup=function(){{ b.style.transform='scale(1)'; }};
-  a.onplay =function(){{ ve(true);  tt.textContent='Đang đọc…'; }};
+  a.onplay =function(){{ imCacLoaKhac(); ve(true);  tt.textContent='Đang đọc…'; }};
   a.onpause=function(){{ ve(false); tt.textContent='Bấm để nghe lại'; }};
   a.onended=function(){{ ve(false); tt.textContent='Bấm để nghe lại'; }};
   {tu_phat_js}
@@ -176,7 +210,51 @@ def _thong_diep_loi(e: Exception) -> str:
     return "Máy đang bận. Bà con thử lại sau ít phút nhé."
 
 
-def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True) -> dict:
+def _them_tieng_mong(box, kq: dict, tt, *, la_tieng_chon: bool) -> None:
+    box.write("Đang dịch sang tiếng Mông…")
+    t = time.perf_counter()
+    try:
+        kq["mong"] = _dich_mong(kq["kich_ban"])
+        kq["thoi_gian"]["dich_mong"] = time.perf_counter() - t
+
+        t = time.perf_counter()
+        audio, tang = phat_tieng_mong(kq["mong"]["rpa"], key=tt.key)
+        kq["thoi_gian"]["tts_mong"] = time.perf_counter() - t
+        kq["audio_mong"] = str(audio) if audio else ""
+        kq["tang_tts"] = tang
+    except Exception as e:
+        if la_tieng_chon:
+            kq["canh_bao"] = "Phần tiếng Mông chưa sẵn sàng, bà con nghe tạm tiếng Việt nhé."
+        kq["_loi_mong"] = str(e)
+
+
+def _them_tieng_tay(box, kq: dict, *, la_tieng_chon: bool) -> None:
+    box.write("Đang dịch sang tiếng Tày…")
+    t = time.perf_counter()
+    try:
+        kq["tay"] = _dich_tay(kq["kich_ban"])
+        kq["thoi_gian"]["dich_tay"] = time.perf_counter() - t
+        try:
+            kq["model_dich_tay"] = chon_model("quality")
+        except Exception:
+            pass
+
+        t = time.perf_counter()
+        audio, tang = phat_tieng_tay(kq["tay"])
+        kq["thoi_gian"]["tts_tay"] = time.perf_counter() - t
+        kq["audio_tay"] = str(audio) if audio else ""
+        kq["tang_tts_tay"] = tang
+    except Exception as e:
+        if la_tieng_chon:
+            kq["canh_bao"] = "Phần tiếng Tày chưa sẵn sàng, bà con nghe tạm tiếng Việt nhé."
+        kq["_loi_tay"] = str(e)
+
+
+def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
+                  ngon_ngu_chon: str = "mong") -> dict:
+    """Kết quả luôn có đủ các tiếng (Việt, Mông, Tày nếu bật).
+    ngon_ngu_chon ('mong' | 'tay' | 'viet') quyết định tiếng nào làm trước
+    và tiếng nào được báo lỗi nếu hỏng."""
     t0 = time.perf_counter()
     kq: dict = {"cau_noi": cau_noi, "thoi_gian": {}}
 
@@ -214,20 +292,14 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True) -> dict:
         kq["audio_viet"] = _tts_vi(kq["kich_ban"])
 
         if phat_giong_mong:
-            box.write("Đang dịch sang tiếng Mông…")
-            t = time.perf_counter()
-            try:
-                kq["mong"] = _dich_mong(kq["kich_ban"])
-                kq["thoi_gian"]["dich"] = time.perf_counter() - t
-
-                t = time.perf_counter()
-                audio, tang = phat_tieng_mong(kq["mong"]["rpa"], key=tt.key)
-                kq["thoi_gian"]["tts"] = time.perf_counter() - t
-                kq["audio_mong"] = str(audio) if audio else ""
-                kq["tang_tts"] = tang
-            except Exception as e:
-                kq["canh_bao"] = "Phần tiếng Mông chưa sẵn sàng, bà con nghe tạm tiếng Việt nhé."
-                kq["_loi_mong"] = str(e)
+            cac_tieng = ["mong", "tay"] if BAT_TIENG_TAY else ["mong"]
+            if ngon_ngu_chon == "tay" and BAT_TIENG_TAY:
+                cac_tieng = ["tay", "mong"]          # tiếng bà con chọn làm trước
+            for ma in cac_tieng:
+                if ma == "mong":
+                    _them_tieng_mong(box, kq, tt, la_tieng_chon=ngon_ngu_chon == "mong")
+                else:
+                    _them_tieng_tay(box, kq, la_tieng_chon=ngon_ngu_chon == "tay")
 
         kq["thoi_gian"]["tong"] = time.perf_counter() - t0
         box.update(label="Đã có hướng dẫn cho bà con", state="complete", expanded=False)
@@ -236,15 +308,19 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True) -> dict:
 
 def xu_ly_cau_noi(van_ban: str) -> None:
     ss.cau_noi = van_ban
-    kq = chay_pipeline(van_ban)
+    ma = ss.get("ma_ngon_ngu", "mong")
+    kq = chay_pipeline(van_ban, ngon_ngu_chon=ma)
     kq["la_tieng_mong"] = bool(ss.get("la_tieng_mong", True))
+    kq["ma_ngon_ngu"] = ma
     ss.ket_qua = kq
 
 
 # ==========================================================================
 # 1. CHỌN TIẾNG
 # ==========================================================================
-LUA_CHON = ["🔊 Tiếng Mông", "🔊 Tiếng Việt"]
+_MA_THEO_NHAN = {"🔊 Tiếng Mông": "mong", "🔊 Tiếng Tày": "tay", "🔊 Tiếng Việt": "viet"}
+LUA_CHON = ["🔊 Tiếng Mông", "🔊 Tiếng Tày", "🔊 Tiếng Việt"] if BAT_TIENG_TAY \
+    else ["🔊 Tiếng Mông", "🔊 Tiếng Việt"]
 
 if hasattr(st, "segmented_control"):
     ngon_ngu = st.segmented_control(
@@ -255,8 +331,10 @@ else:
     ngon_ngu = st.radio("Bà con nói bằng tiếng gì?", LUA_CHON,
                         index=0, horizontal=True, label_visibility="collapsed")
 
-la_tieng_mong = ngon_ngu.endswith("Mông")
+ma_ngon_ngu = _MA_THEO_NHAN.get(ngon_ngu, "mong")
+la_tieng_mong = ma_ngon_ngu == "mong"
 ss.la_tieng_mong = la_tieng_mong
+ss.ma_ngon_ngu = ma_ngon_ngu
 
 # ==========================================================================
 # 2. MỘT NÚT DUY NHẤT (ĐÃ SỬA NGƯỠNG ĐỂ NHẬN DIỆN MƯỢT MÀ CÂU NÓI NGẮN)
@@ -276,16 +354,21 @@ if audio_in is not None:
     if van_tay != ss.audio_da_xu_ly and len(raw) > 50:
         ss.audio_da_xu_ly = van_tay
         with st.spinner("Đang nghe bà con nói…"):
-            van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong)
+            van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong,
+                                   ngon_ngu=ma_ngon_ngu)
         if not van_ban:
             st.error("Máy chưa nghe rõ, bà con bấm nói lại nhé.")
             loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.",
                 nhan="Nghe lại lời nhắc", tu_phat=True)
         else:
-            if la_tieng_mong:
+            if ma_ngon_ngu in ("mong", "tay"):
                 dong_vi = [l for l in van_ban.splitlines() if l.startswith("VI:")]
-                van_ban = (dong_vi[0][3:].strip() if dong_vi
-                           else dich_sang_viet(van_ban))
+                if dong_vi:
+                    van_ban = dong_vi[0][3:].strip()
+                elif ma_ngon_ngu == "tay":
+                    van_ban = dich_tay_sang_viet(van_ban)
+                else:
+                    van_ban = dich_sang_viet(van_ban)
             st.success(f"Bà con nói: *{van_ban}*")
             xu_ly_cau_noi(van_ban)
     elif 0 < len(raw) <= 50:
@@ -358,19 +441,34 @@ def hien_ket_qua(kq: dict) -> None:
         c2.markdown(f"💰 **Tiền:** {dg.get('bao_nhieu_tien','—')}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    uu_tien_mong = bool(kq.get("la_tieng_mong", True)) and bool(kq.get("audio_mong"))
-
+    # Mỗi tiếng một nút loa. Tiếng bà con đã chọn đứng đầu và tự phát.
+    ma_chon = kq.get("ma_ngon_ngu") or ("mong" if kq.get("la_tieng_mong", True) else "viet")
+    cac_loa = []
     if kq.get("audio_mong"):
-        nut_loa(kq["audio_mong"], nhan="Nghe bằng tiếng Mông", tu_phat=uu_tien_mong)
-        if kq.get("tang_tts") == "vi_phonetic":
-            st.caption("Đây là giọng máy đọc phiên âm, chưa phải giọng Mông chuẩn.")
+        cac_loa.append(("mong", kq["audio_mong"], "Nghe bằng tiếng Mông",
+                        "Giọng máy đọc tiếng dân tộc thiểu số."
+                        if kq.get("tang_tts") == "vi_phonetic" else ""))
+    if kq.get("audio_tay"):
+        cac_loa.append(("tay", kq["audio_tay"], "Nghe bằng tiếng Tày",
+                        "Giọng máy đọc tiếng dân tộc thiểu số."))
+    cac_loa.append(("viet", kq.get("audio_viet", ""), "Nghe bằng tiếng Việt", ""))
+    cac_loa.sort(key=lambda x: x[0] != ma_chon)          # sort ổn định: tiếng chọn lên đầu
 
-    if kq.get("audio_viet"):
-        nut_loa(kq["audio_viet"], nhan="Nghe bằng tiếng Việt",
-                tu_phat=not uu_tien_mong)
-    else:
-        loa(kq.get("kich_ban", ""), nhan="Nghe bằng tiếng Việt",
-            tu_phat=not uu_tien_mong)
+    co_tieng_chon = any(ma == ma_chon for ma, *_ in cac_loa)
+    tieng_tu_phat = ma_chon if co_tieng_chon else "viet"  # tiếng chọn hỏng -> phát tiếng Việt
+
+    for ma, duong_dan, nhan, ghi_chu in cac_loa:
+        if ma == "viet" and not duong_dan:
+            loa(kq.get("kich_ban", ""), nhan=nhan, tu_phat=(ma == tieng_tu_phat))
+        else:
+            nut_loa(duong_dan, nhan=nhan, tu_phat=(ma == tieng_tu_phat))
+        if ghi_chu:
+            st.caption(ghi_chu)
+
+    if kq.get("tay"):
+        with st.expander("📖 Xem chữ tiếng Tày"):
+            st.caption("chữ Tày–Nùng hệ Latinh · bản dịch máy, chưa được duyệt")
+            st.markdown(f"### {kq['tay']}")
 
     if kq.get("mong"):
         with st.expander("📖 Xem chữ tiếng Mông"):
@@ -392,6 +490,12 @@ def hien_ket_qua(kq: dict) -> None:
             st.caption(f"Giọng Mông đã dùng: {NHAN_TANG.get(kq.get('tang_tts',''), '—')}")
             if kq.get("_loi_mong"):
                 st.caption(f"Lỗi tiếng Mông: {kq['_loi_mong'][:200]}")
+            if kq.get("tang_tts_tay"):
+                st.caption(f"Giọng Tày đã dùng: {NHAN_TANG.get(kq['tang_tts_tay'], '—')}"
+                           + (f" · dịch bằng {kq['model_dich_tay']}"
+                              if kq.get("model_dich_tay") else ""))
+            if kq.get("_loi_tay"):
+                st.caption(f"Lỗi tiếng Tày: {kq['_loi_tay'][:200]}")
         if dg.get("chua_ro"):
             st.warning("Tài liệu **không nêu rõ**: " + "; ".join(dg["chua_ro"]))
         for l in dg.get("luu_y", []):

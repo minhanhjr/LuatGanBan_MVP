@@ -21,6 +21,13 @@ PROMPT_HMONG = (
     "sau đó xuống dòng và ghi bản dịch tiếng Việt sau tiền tố 'VI: '. "
     "Nếu không nghe được, trả về đúng chữ: KHONG_RO"
 )
+PROMPT_TAY = (
+    "Đây là ghi âm tiếng Tày (có thể lẫn tiếng Nùng hoặc tiếng Việt). Hãy gõ lại "
+    "nội dung bằng chữ Tày–Nùng hệ Latinh, sau đó xuống dòng và ghi bản dịch "
+    "tiếng Việt sau tiền tố 'VI: '. "
+    "Nếu không nghe được, trả về đúng chữ: KHONG_RO"
+)
+_PROMPT_THEO_TIENG = {"mong": PROMPT_HMONG, "tay": PROMPT_TAY}
 
 
 def _mime(name: str) -> str:
@@ -34,9 +41,12 @@ def _mime(name: str) -> str:
     return "audio/wav"
 
 
-def stt_gemini(audio_bytes: bytes, *, ten_file: str = "rec.wav", tieng_mong: bool = False) -> str:
+def stt_gemini(audio_bytes: bytes, *, ten_file: str = "rec.wav", tieng_mong: bool = False,
+               ngon_ngu: str | None = None) -> str:
+    """ngon_ngu: 'mong' | 'tay' | 'viet'. Để trống thì suy ra từ tieng_mong (tương thích cũ)."""
+    ngon_ngu = ngon_ngu or ("mong" if tieng_mong else "viet")
     part = types.Part.from_bytes(data=audio_bytes, mime_type=_mime(ten_file))
-    noi_dung = [PROMPT_HMONG if tieng_mong else PROMPT_VI, part]
+    noi_dung = [_PROMPT_THEO_TIENG.get(ngon_ngu, PROMPT_VI), part]
     ten_model = chon_model("stt")
     for lan in range(2):
         try:
@@ -65,12 +75,12 @@ def stt_du_phong(audio_file) -> str:
         return r.recognize_google(r.record(source), language="vi-VN")
 
 
-def nghe(audio_value, *, tieng_mong: bool = False) -> tuple[str, str]:
+def nghe(audio_value, *, tieng_mong: bool = False, ngon_ngu: str | None = None) -> tuple[str, str]:
     """Trả về (van_ban, nguon). audio_value = st.audio_input(...)"""
     raw = audio_value.getvalue() if hasattr(audio_value, "getvalue") else audio_value.read()
     ten = getattr(audio_value, "name", "rec.wav")
     try:
-        txt = stt_gemini(raw, ten_file=ten, tieng_mong=tieng_mong)
+        txt = stt_gemini(raw, ten_file=ten, tieng_mong=tieng_mong, ngon_ngu=ngon_ngu)
         if txt and txt != "KHONG_RO":
             return txt, "gemini"
     except Exception:

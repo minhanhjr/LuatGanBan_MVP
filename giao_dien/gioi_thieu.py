@@ -5,6 +5,7 @@ import base64
 import html
 from pathlib import Path
 from core import auth
+from core.config import BAT_TIENG_TAY
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -73,6 +74,29 @@ DATA_FILE = DATA_DIR / "gioi_thieu.md"
 # Đường dẫn đến các file âm thanh thu sẵn trong thư mục audio
 AUDIO_MONG_FILE = ROOT / "audio" / "gioi_thieu_mong.m4a"
 AUDIO_VI_FILE = ROOT / "audio" / "gioi_thieu_vi.m4a"
+AUDIO_TAY_FILE = ROOT / "audio" / "gioi_thieu_tay.m4a"   # nếu có bản thu thì dùng bản thu
+
+# Chưa có bản thu tiếng Tày -> máy dịch đoạn ngắn này sang tiếng Tày rồi đọc (bản thử)
+GIOI_THIEU_NGAN = (
+    "Luật Gần Bản là trợ lý giúp bà con hỏi về thủ tục hành chính bằng giọng nói. "
+    "Bà con chọn tiếng của mình, bấm vào nút micro màu xanh ở giữa màn hình, "
+    "rồi nói điều cần hỏi. Ví dụ: tôi muốn làm giấy khai sinh cho con. "
+    "Máy sẽ tìm hướng dẫn của Nhà nước và nói lại cho bà con nghe bằng lời dễ hiểu: "
+    "cần đi đâu, mang giấy tờ gì, chờ bao lâu, mất bao nhiêu tiền. "
+    "Nếu chưa rõ, bà con bấm nút gặp cán bộ để được hỗ trợ trực tiếp."
+)
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _audio_gioi_thieu_tay(phien_ban: int = 2) -> str:
+    """Trả về đường dẫn file âm thanh giới thiệu tiếng Tày, "" nếu không tạo được."""
+    try:
+        from core.translate import dich_sang_tay
+        from core.tts import phat_tieng_tay
+        p, _ = phat_tieng_tay(dich_sang_tay(GIOI_THIEU_NGAN))
+        return str(p) if p else ""
+    except Exception:
+        return ""
 
 def load_intro_content():
     """Đọc nội dung từ file cứng, nếu chưa có thì trả về nội dung chuẩn đầy đủ."""
@@ -105,7 +129,7 @@ def load_intro_content():
 <p>Luật Gần Bản là một trợ lý ảo hỗ trợ tra cứu thủ tục hành chính, vận hành hoàn toàn bằng giọng nói và định vị đây là một "dự án âm thanh" chứ không phải dự án chữ viết.</p>
 <p>Trên phiên bản sản phẩm tối thiểu (MVP) mà bạn đang tiếp cận, giao diện được thiết kế tối giản hóa tuyệt đối để ngay cả người không biết chữ cũng có thể sử dụng:</p>
 <ul>
-    <li><b>Bước 1. Lựa chọn:</b> Chọn ngôn ngữ được hiển thị trên màn hình (“Tiếng Mông” hoặc “Tiếng Việt”)</li>
+    <li><b>Bước 1. Lựa chọn:</b> Chọn ngôn ngữ được hiển thị trên màn hình (“Tiếng Mông”, “Tiếng Tày” hoặc “Tiếng Việt”)</li>
     <li><b>Bước 2. Thao tác một chạm:</b> Người dùng nhấn vào biểu tượng Micro cỡ lớn ở trung tâm và nói ra nhu cầu của mình. (Ví dụ: “Tôi muốn làm giấy khai sinh cho con”).</li>
     <li><b>Bước 3: Tiếp nhận thông tin và trả lời câu hỏi:</b> Hệ thống tự động phân tích nhu cầu, tra cứu quy định pháp luật, đưa ra câu trả lời đã được đơn giản hóa bằng văn bản và bản audio tiếng dân tộc để hướng dẫn người dân.</li>
 </ul>
@@ -277,7 +301,7 @@ col_lang, col_space = st.columns([3, 7])
 with col_lang:
     selected_lang = st.segmented_control(
         "Chọn ngôn ngữ phát âm",
-        options=["🔊 Tiếng Việt", "🔊 Tiếng Mông"],
+        options=["🔊 Tiếng Việt", "🔊 Tiếng Mông"] + (["🔊 Tiếng Tày"] if BAT_TIENG_TAY else []),
         default=None,  # Không chọn sẵn, tránh tự động phát âm thanh khi mới vào trang
         key="intro_language_selector",
         label_visibility="collapsed"
@@ -292,6 +316,17 @@ if selected_lang == "🔊 Tiếng Mông":
         st.audio(str(AUDIO_MONG_FILE), format="audio/mp4", autoplay=True)
     else:
         st.warning("⚠️ Đang cập nhật tệp âm thanh tiếng Mông tại thư mục `audio/gioi_thieu_mong.m4a`.")
+elif selected_lang == "🔊 Tiếng Tày":
+    if AUDIO_TAY_FILE.exists():
+        st.audio(str(AUDIO_TAY_FILE), format="audio/mp4", autoplay=True)
+    else:
+        with st.spinner("Đang chuẩn bị bản đọc tiếng Tày…"):
+            p_tay = _audio_gioi_thieu_tay()
+        if p_tay:
+            st.audio(p_tay, format="audio/mpeg", autoplay=True)
+            st.caption("Giọng máy đọc tiếng dân tộc thiểu số.")
+        else:
+            st.warning("⚠️ Chưa tạo được bản đọc tiếng Tày. Bà con nghe tạm tiếng Việt nhé.")
 elif selected_lang == "🔊 Tiếng Việt":
     if AUDIO_VI_FILE.exists():
         st.audio(str(AUDIO_VI_FILE), format="audio/mp4", autoplay=True)

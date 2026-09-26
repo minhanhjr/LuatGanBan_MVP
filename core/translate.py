@@ -139,3 +139,98 @@ def dich_sang_mong(text: str, *, provider: str | None = None) -> dict:
 
 def dich_sang_viet(text: str, *, provider: str | None = None) -> str:
     return dich(text, sang_mong=False, provider=provider)
+
+
+# ============================================================== TIẾNG TÀY
+# Không dịch vụ dịch thương mại nào hỗ trợ tiếng Tày (Google Translate, Azure,
+# AWS — kiểm tra tháng 9/2026), nên chỉ có một đường: Gemini.
+# Đây là BẢN DEMO: chưa có người Tày bản địa duyệt thuật ngữ.
+GLOSSARY_TAY_FILE = DATA / "glossary_tay.csv"     # cột: tieng_viet, tieng_tay
+
+SYSTEM_DICH_TAY = """\
+Bạn là phiên dịch viên người Tày, làm việc cho Trung tâm trợ giúp pháp lý cấp
+xã ở vùng Đông Bắc (Cao Bằng, Lạng Sơn, Bắc Kạn, Thái Nguyên, Quảng Ninh).
+Nhiệm vụ: DỊCH THẬT đoạn tiếng Việt sang TIẾNG TÀY để đọc cho bà con nghe.
+
+QUY TẮC
+1. Viết bằng chữ Tày–Nùng hệ Latinh (dấu thanh viết như chữ quốc ngữ).
+2. Phải là câu tiếng Tày thật: dùng từ Tày, ngữ pháp Tày. KHÔNG được trả lại
+   nguyên câu tiếng Việt hay chỉ đổi vài chữ.
+3. Chỉ giữ nguyên tiếng Việt cho: tên giấy tờ (giấy khai sinh, căn cước...),
+   tên cơ quan (Ủy ban nhân dân xã...), tên thủ tục. Mọi phần còn lại dịch sang Tày.
+4. Con số, ngày, số tiền: giữ nguyên dạng chữ số.
+5. Câu ngắn, lời lẽ gần gũi như người trong bản nói với nhau.
+6. Không thêm, không bớt ý, không giải thích, không ghi chú. Chỉ trả về bản dịch.
+{glossary}
+"""
+
+# Tỷ lệ âm tiết trùng với câu tiếng Việt gốc. Tiếng Tày có nhiều từ mượn Hán-Việt
+# nên trùng một phần là bình thường; trùng quá mức này gần như chắc chắn là
+# model đã không dịch mà trả lại tiếng Việt.
+NGUONG_TRUNG_TIENG_VIET = 0.8
+
+
+def _ty_le_trung(nguon: str, dich: str) -> float:
+    import re
+    tach = lambda t: re.findall(r"\w+", t.lower())
+    a, b = set(tach(nguon)), tach(dich)
+    return (sum(1 for w in b if w in a) / len(b)) if b else 1.0
+
+
+SYSTEM_DICH_TAY_NGUOC = """\
+Bạn là phiên dịch viên Tày – Việt. Người nói là bà con dân tộc Tày (có thể
+lẫn tiếng Nùng hoặc tiếng Việt) đang hỏi về thủ tục hành chính. Dịch sang
+tiếng Việt tự nhiên, giữ đúng ý hỏi. Chỉ trả về bản dịch, không giải thích.
+"""
+
+
+@lru_cache(maxsize=1)
+def _glossary_tay() -> str:
+    if not GLOSSARY_TAY_FILE.exists():
+        return ""
+    rows = []
+    with GLOSSARY_TAY_FILE.open(encoding="utf-8-sig", newline="") as f:
+        for r in csv.DictReader(f):
+            vi, tay = (r.get("tieng_viet") or "").strip(), (r.get("tieng_tay") or "").strip()
+            if vi and tay:
+                rows.append(f'   - "{vi}" = "{tay}"')
+    if not rows:
+        return ""
+    return "\n7. BẮT BUỘC dùng đúng các thuật ngữ đã chuẩn hoá sau:\n" + "\n".join(rows)
+
+
+def dich_sang_tay(text: str) -> str:
+    """Việt -> Tày bằng model Gemini mạnh nhất tài khoản gọi được.
+
+    Nếu bản dịch gần như trùng tiếng Việt (model không biết dịch) thì yêu cầu
+    dịch lại một lần; vẫn trùng thì ném lỗi để giao diện báo 'chưa sẵn sàng'
+    — không đọc tiếng Việt rồi gọi đó là tiếng Tày.
+    """
+    text = (text or "").strip()
+    if not text:
+        return ""
+    system = SYSTEM_DICH_TAY.format(glossary=_glossary_tay())
+    kq = goi_gemini(text, system=system, vai_tro="quality",
+                    temperature=0.2, cache_tag="dich_tay_v2").strip()
+    if kq and _ty_le_trung(text, kq) < NGUONG_TRUNG_TIENG_VIET:
+        return kq
+
+    nhac_lai = ("Bản dịch trước gần như vẫn là tiếng Việt. Hãy dịch THẬT sang "
+                "tiếng Tày, dùng từ ngữ Tày, chỉ giữ tiếng Việt cho tên giấy tờ "
+                "và tên cơ quan.\n\nĐoạn cần dịch:\n" + text)
+    kq = goi_gemini(nhac_lai, system=system, vai_tro="quality",
+                    temperature=0.4, cache_tag="dich_tay_v2_lai").strip()
+    if kq and _ty_le_trung(text, kq) < NGUONG_TRUNG_TIENG_VIET:
+        return kq
+    raise RuntimeError("Gemini chưa dịch được sang tiếng Tày (kết quả vẫn là tiếng Việt)")
+
+
+def dich_tay_sang_viet(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+    try:
+        return goi_gemini(text, system=SYSTEM_DICH_TAY_NGUOC, vai_tro="quality",
+                          temperature=0.1, cache_tag="dich_tay_nguoc_v2").strip()
+    except Exception:
+        return text
