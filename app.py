@@ -43,6 +43,9 @@ st.html("""
 
   /* Phông chữ chung */
   .stApp, p, h1, h2, h3, h4, h5, h6, label, button, input, .stMarkdown, .stText, .stTextArea { font-family: 'Times New Roman', Times, serif !important; }
+  /* Biểu tượng Material là chữ ghép (ligature): nếu bị ép sang Times New Roman sẽ hiện ra chữ "settings"... thay vì hình.
+     Quy tắc cho nút chuyển trang ở trên nhắm vào mọi <span>, nên phải khai báo lại với độ ưu tiên cao hơn. */
+  [data-testid="stPageLink"] [data-testid="stIconMaterial"] { font-family: 'Material Symbols Rounded','Material Icons',sans-serif !important; font-weight: normal !important; letter-spacing: normal !important; }
   [data-testid="stExpanderToggleIcon"], [data-testid="stIconMaterial"], [data-testid="stFileUploadDropzone"] span, .st-icon, .material-icons, .material-symbols-rounded { font-family: 'Material Symbols Rounded','Material Icons',sans-serif !important; }
 
   /* Ẩn UI mặc định của Streamlit */
@@ -122,13 +125,13 @@ if not hasattr(st, "navigation") or not hasattr(st, "Page"):
     st.stop()
 
 TRANG_HOI_DAP = st.Page("giao_dien/cong_dan.py", title="Hỏi đáp thủ tục",
-                        icon=":material/record_voice_over:", default=True)
+                        icon="🏠", default=True)
 TRANG_GIOI_THIEU = st.Page("giao_dien/gioi_thieu.py", title="Giới thiệu dự án",
-                           icon=":material/info:")
+                           icon="📖")
 TRANG_QUAN_TRI = st.Page("giao_dien/quan_tri.py", title="Quản trị kho",
-                         icon=":material/settings:")
+                         icon="⚙️")
 TRANG_TAI_KHOAN = st.Page("giao_dien/tai_khoan.py", title="Tài khoản & phân quyền",
-                          icon=":material/manage_accounts:")
+                          icon="👥")
 
 
 def duoc_vao_quan_tri() -> bool:
