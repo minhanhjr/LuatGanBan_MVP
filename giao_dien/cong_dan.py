@@ -2,7 +2,6 @@
 """Cổng người dân — hỏi đáp thủ tục bằng giọng nói.
 
 Nguyên tắc giao diện (voice-first):
-
   * MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự chạy hết chuỗi,
     không có nút "xử lý" thứ hai.
   * Không hiện con số kỹ thuật. Bà con không cần biết "độ tin cậy 10%";
@@ -35,6 +34,12 @@ from core.translate import (dich_sang_mong, dich_sang_tay, dich_sang_viet,
                             dich_tay_sang_viet)
 from core.tts import NHAN_TANG, phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
 
+# Tích hợp kết nối CSDL PostgreSQL để lọc bài đã duyệt (SRS 9.55)
+try:
+    from core.database import lay_danh_sach_thu_tuc_cho_nguoi_dan
+except ImportError:
+    lay_danh_sach_thu_tuc_cho_nguoi_dan = None
+
 ss = st.session_state
 ss.setdefault("danh_sach_yeu_cau", [])
 ss.setdefault("ket_qua", None)
@@ -43,7 +48,7 @@ ss.setdefault("audio_da_xu_ly", "")
 
 if not kb.load_kb():
     st.error(
-        "**Kho dữ liệu trống.** Hãy chạy một lần:  `python tools/extract_tthc.py`\n\n"
+        "**Kho dữ liệu trống.** Hãy chạy một lần: `python tools/extract_tthc.py`\n\n"
         "Lệnh này bóc 28 file PDF hướng dẫn đang bị nhúng bên trong 3 file Excel "
         "ở `file_dichvucong/` ra thành `data/tthc/` + `data/manifest.json`."
     )
@@ -149,8 +154,7 @@ def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
   var LOA=`{_SVG_LOA}`, DUNG=`{_SVG_DUNG}`;
   function ve(dangPhat){{ b.innerHTML = dangPhat ? DUNG : LOA; }}
 
-  // Chỉ một loa được phát tại một thời điểm: loa này bắt đầu đọc thì
-  // các loa khác (Việt / Mông / Tày) phải im.
+  // Chỉ một loa được phát tại một thời điểm
   var ID = Math.random().toString(36).slice(2);
   var kenh = null;
   try {{ kenh = new BroadcastChannel('lgb-loa'); }} catch(e) {{}}
@@ -159,7 +163,6 @@ def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
   }}
   function imCacLoaKhac(){{
     if (kenh) {{ try {{ kenh.postMessage(ID); }} catch(e) {{}} }}
-    // Dự phòng khi trình duyệt không có BroadcastChannel: dừng trực tiếp
     try {{
       var ds = [];
       var khung = window.parent.document.querySelectorAll('iframe');
@@ -251,9 +254,6 @@ def _them_tieng_tay(box, kq: dict, tt=None, *, la_tieng_chon: bool) -> None:
         kq["_loi_tay"] = str(e)
 
 
-# Mỗi tiếng dân tộc một hàm: dịch bản tiếng Việt rồi tạo file đọc.
-# Thêm tiếng mới: viết hàm _them_tieng_xxx cùng kiểu rồi đăng ký ở đây
-# (và thêm vào core/ngon_ngu.py).
 _XU_LY_TIENG = {
     "mong": _them_tieng_mong,
     "tay": _them_tieng_tay,
@@ -263,9 +263,6 @@ _XU_LY_TIENG = {
 def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
                   ngon_ngu_chon: str = "mong",
                   cac_tieng: list[str] | None = None) -> dict:
-    """cac_tieng: các tiếng bà con muốn nghe, theo thứ tự đã chọn.
-    ngon_ngu_chon: tiếng bà con nói (tiếng đầu tiên) — được báo lỗi nếu hỏng.
-    Tiếng Việt luôn có vì là bản gốc, không tốn thêm lượt dịch."""
     if cac_tieng is None:
         cac_tieng = [ngon_ngu_chon]
     t0 = time.perf_counter()
@@ -305,7 +302,7 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
         kq["audio_viet"] = _tts_vi(kq["kich_ban"])
 
         if phat_giong_mong:
-            for ma in cac_tieng:                  # chỉ dịch những tiếng đã chọn
+            for ma in cac_tieng:
                 xu_ly = _XU_LY_TIENG.get(ma)
                 if xu_ly:
                     xu_ly(box, kq, tt, la_tieng_chon=(ma == ngon_ngu_chon))
@@ -343,7 +340,7 @@ st.html("""<style>
 </style>""")
 try:
     _khung_chon = st.container(key="lgb-chon-tieng")
-except TypeError:                          # Streamlit cũ chưa có tham số key
+except TypeError:
     _khung_chon = st.container()
 
 chon = _khung_chon.multiselect(
@@ -358,14 +355,14 @@ if not chon:
     _khung_chon.caption("Chưa chọn tiếng nào, máy sẽ dùng tiếng Việt.")
 
 cac_ngon_ngu = [_MA_THEO_NHAN[x] for x in chon] or [NN.MA_TIENG_VIET]
-ma_ngon_ngu = cac_ngon_ngu[0]              # tiếng đầu tiên = tiếng bà con nói
+ma_ngon_ngu = cac_ngon_ngu[0]
 la_tieng_mong = ma_ngon_ngu == "mong"
 ss.la_tieng_mong = la_tieng_mong
 ss.ma_ngon_ngu = ma_ngon_ngu
 ss.cac_ngon_ngu = cac_ngon_ngu
 
 # ==========================================================================
-# 2. MỘT NÚT DUY NHẤT (ĐÃ SỬA NGƯỠNG ĐỂ NHẬN DIỆN MƯỢT MÀ CÂU NÓI NGẮN)
+# 2. MỘT NÚT DUY NHẤT
 # ==========================================================================
 st.markdown(
     '<div style="text-align:center;font-size:26px;font-weight:bold;'
@@ -378,7 +375,6 @@ audio_in = st.audio_input("Bấm micro để nói", label_visibility="collapsed"
 if audio_in is not None:
     raw = audio_in.getvalue()
     van_tay = hashlib.sha256(raw).hexdigest()[:16]
-    # Hạ ngưỡng từ 2000 xuống 50 bytes để xử lý ngay cả câu nói ngắn gọn nhất
     if van_tay != ss.audio_da_xu_ly and len(raw) > 50:
         ss.audio_da_xu_ly = van_tay
         with st.spinner("Đang nghe bà con nói…"):
@@ -469,8 +465,6 @@ def hien_ket_qua(kq: dict) -> None:
         c2.markdown(f"💰 **Tiền:** {dg.get('bao_nhieu_tien','—')}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Mỗi tiếng đã chọn một nút loa, theo đúng thứ tự bà con chọn.
-    # Tiếng đầu tiên tự phát; tiếng Việt luôn có ở cuối làm bản gốc.
     ma_chon = kq.get("ma_ngon_ngu") or ("mong" if kq.get("la_tieng_mong", True) else "viet")
     cac_ma = list(kq.get("cac_ngon_ngu") or [ma_chon])
     if NN.MA_TIENG_VIET not in cac_ma:
@@ -488,13 +482,13 @@ def hien_ket_qua(kq: dict) -> None:
         nn = NN.theo_ma(ma)
         duong_dan = kq.get(f"audio_{ma}", "")
         if ma != NN.MA_TIENG_VIET and not duong_dan:
-            continue                     # tiếng này dịch/đọc hỏng -> không hiện nút
+            continue
         ten = nn.ten if nn else ma
         cac_loa.append((ma, duong_dan, f"Nghe bằng {ten[:1].lower()}{ten[1:]}",
                         _ghi_chu(ma)))
 
     co_tieng_chon = any(ma == ma_chon for ma, *_ in cac_loa)
-    tieng_tu_phat = ma_chon if co_tieng_chon else "viet"  # tiếng chọn hỏng -> phát tiếng Việt
+    tieng_tu_phat = ma_chon if co_tieng_chon else "viet"
 
     for ma, duong_dan, nhan, ghi_chu in cac_loa:
         if ma == "viet" and not duong_dan:
@@ -568,7 +562,7 @@ if ss.ket_qua:
 
 
 # ==========================================================================
-# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (Tích hợp tra cứu CSDL)
 # ==========================================================================
 st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
@@ -589,6 +583,22 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
 
     with t_chon:
         st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
+        
+        # Tra cứu thủ tục công khai đã được phê duyệt trực tiếp từ PostgreSQL
+        if lay_danh_sach_thu_tuc_cho_nguoi_dan:
+            tu_khoa_db = st.text_input("🔍 Nhập tên thủ tục tra cứu từ CSDL:", "", key="tim_db_cong_dan")
+            if tu_khoa_db.strip():
+                ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
+                if ds_db:
+                    st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
+                    for item_db in ds_db:
+                        if st.button(f"📌 {item_db['ten_thu_tuc']} (Mã: {item_db['ma_thu_tuc']})", key=f"btn_db_{item_db['ma_thu_tuc']}"):
+                            xu_ly_cau_noi(item_db['ten_thu_tuc'])
+                            st.rerun()
+                else:
+                    st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
+            st.divider()
+
         nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
                                  format_func=lambda k: DANH_MUC_THU_TUC[k])
         ds = kb.theo_nhom(nhom_chon)
