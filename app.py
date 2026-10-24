@@ -19,7 +19,7 @@ from core import auth
 
 ROOT = Path(__file__).resolve().parent
 
-st.set_page_config(page_title="Luật Gần Bản", page_icon="⚖️",
+st.set_page_config(page_title="LUẬT GẦN BẢN - Chuyển đổi số: Không để ai bị bỏ lại phía sau", page_icon="⚖️",
                    layout="centered", initial_sidebar_state="collapsed")
 
 # ==========================================================================
