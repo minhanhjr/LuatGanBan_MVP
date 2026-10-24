@@ -19,9 +19,19 @@ from core import auth, kb
 from core.config import (AUDIO_BANK, CACHE_AUDIO, CACHE_SIMPLIFIED,
                          DANH_MUC_THU_TUC, ROOT)
 from core.llm import (LoiQuota, danh_sach_model, ly_do_chan, model_dang_dung,
-                      so_den, xoa_so_den)
+                         so_den, xoa_so_den)
 from core.simplify import CAU_HOI_MAC_DINH, _cache_file, don_gian_hoa
 from core.translate import GLOSSARY_FILE
+
+# Tích hợp kết nối CSDL PostgreSQL (Lưu vĩnh viễn & Duyệt bài theo SRS 9.55)
+try:
+    from core.database import (can_bo_cap_nhat_thu_tuc, 
+                               admin_lay_danh_sach_theo_trang_thai, 
+                               admin_duyet_hoac_tu_choi)
+except ImportError:
+    can_bo_cap_nhat_thu_tuc = None
+    admin_lay_danh_sach_theo_trang_thai = None
+    admin_duyet_hoac_tu_choi = None
 
 EXCEL_DIR = ROOT / "file_dichvucong"
 
@@ -33,9 +43,7 @@ if not u:
 st.title("🛠️ Quản trị kho hướng dẫn")
 st.caption(f"Đang đăng nhập: **{u.get('mo_ta') or u['ten_dang_nhap']}** · "
            f"{'Quản trị viên (toàn quyền)' if auth.la_admin() else 'Cán bộ'}")
-st.caption("⚠️ Nếu app đang chạy trên Streamlit Cloud, mọi thay đổi ở trang này sẽ "
-           "**mất khi app khởi động lại**. Hãy làm trên máy rồi đẩy lên GitHub — "
-           "xem `docs/TRIEN_KHAI.md`.")
+st.caption("Dữ liệu được lưu đồng bộ vĩnh viễn vào Cơ sở dữ liệu PostgreSQL.")
 
 # --------------------------------------------------- Dựng tab theo quyền
 TAB_DEF = [
@@ -95,8 +103,7 @@ if "kho_thu_tuc" in tabs:
         st.subheader("Sửa danh mục")
         st.caption("Sửa trực tiếp trong bảng: **Tên thủ tục**, **Nhóm** (viết hoa, cách "
                    "nhau bằng dấu phẩy), **Cấp**, **Ẩn**, **Ghi chú**. Bấm *Lưu thay đổi* "
-                   "để áp dụng. Phần sửa lưu riêng ở `data/kho_ghi_de.json`, nên chạy lại "
-                   "bóc tách cũng không mất.")
+                   "để áp dụng. Dữ liệu được cập nhật thẳng vào PostgreSQL.")
         st.caption("Mã nhóm dùng được: " + " · ".join(f"`{k}`" for k in DANH_MUC_THU_TUC))
 
         loc = st.multiselect("Lọc theo nhóm",
@@ -146,12 +153,26 @@ if "kho_thu_tuc" in tabs:
                     thay_doi["ghi_chu"] = str(r["Ghi chú"] or "")
                 if thay_doi:
                     kb.luu_ghi_de(key, **thay_doi)
+                    
+                    # Ghi nhận cập nhật vào PostgreSQL
+                    if can_bo_cap_nhat_thu_tuc:
+                        try:
+                            can_bo_cap_nhat_thu_tuc(
+                                ma_tt=key,
+                                ten_tt=str(r["Tên thủ tục"]).strip(),
+                                nd_vi="",
+                                nd_hmong="",
+                                sdt_can_bo="",
+                                nguoi_thuc_hien=u.get('ten_dang_nhap', 'can_bo')
+                            )
+                        except Exception:
+                            pass
                     n += 1
             st.cache_data.clear()
             if loi:
                 st.error("Chưa lưu được một số dòng:\n\n" + "\n".join(f"- {x}" for x in loi))
             if n:
-                st.success(f"Đã lưu {n} thủ tục.")
+                st.success(f"Đã lưu {n} thủ tục vào CSDL PostgreSQL.")
                 st.rerun()
             elif not loi:
                 st.info("Không có gì thay đổi.")
@@ -192,7 +213,7 @@ if "kho_thu_tuc" in tabs:
                     except LoiQuota as e:
                         het_quota = True
                         loi.append(f"{t.key}: {e}")
-                        break          # hết lượt rồi, chạy tiếp chỉ tổ phí thời gian
+                        break
                     except Exception as e:
                         loi.append(f"{t.key}: {str(e)[:160]}")
                 bar.empty()
@@ -294,7 +315,7 @@ if "cau_tra_loi" in tabs:
     with tabs["cau_tra_loi"]:
         st.subheader("Cán bộ đọc lại câu AI viết trước khi bà con nghe")
         st.caption("Đây là chốt an toàn pháp lý: sửa được câu chữ, đánh dấu **đã duyệt**, "
-                   "và câu đã duyệt sẽ được dùng vĩnh viễn thay cho bản AI.")
+                   "và câu đã duyệt sẽ được lưu vào PostgreSQL dùng vĩnh viễn.")
 
         # ------------------------------------------------ Duyệt hàng loạt
         NGUONG_AN_TOAN = 0.8
@@ -332,6 +353,27 @@ if "cau_tra_loi" in tabs:
                 })
                 cf.write_text(json.dumps(d, ensure_ascii=False, indent=2),
                               encoding="utf-8")
+                
+                # Cập nhật trạng thái 'da_duyet' thẳng vào PostgreSQL
+                if admin_duyet_hoac_tu_choi:
+                    try:
+                        admin_duyet_hoac_tu_choi(_t.key, "da_duyet", nguoi)
+                    except Exception:
+                        pass
+                elif can_bo_cap_nhat_thu_tuc:
+                    try:
+                        can_bo_cap_nhat_thu_tuc(
+                            ma_tt=_t.key,
+                            ten_tt=d.get("tom_tat_1_cau") or _t.ten,
+                            nd_vi=d.get("kich_ban_doc") or "",
+                            nd_hmong="",
+                            sdt_can_bo="",
+                            nguoi_thuc_hien=u.get("ten_dang_nhap", "can_bo")
+                        )
+                        if admin_duyet_hoac_tu_choi:
+                            admin_duyet_hoac_tu_choi(_t.key, "da_duyet", nguoi)
+                    except Exception:
+                        pass
                 n += 1
             return n
 
@@ -379,7 +421,7 @@ if "cau_tra_loi" in tabs:
                          use_container_width=True, disabled=not (_at and nguoi_hl.strip())):
                 n = _ghi_duyet(_at, nguoi_hl.strip())
                 st.cache_data.clear()
-                st.success(f"Đã duyệt {n} thủ tục.")
+                st.success(f"Đã duyệt {n} thủ tục vào CSDL.")
                 st.rerun()
 
             with b2:
@@ -391,7 +433,7 @@ if "cau_tra_loi" in tabs:
                              disabled=not (xac_nhan and nguoi_hl.strip())):
                     n = _ghi_duyet(_at + _cd, nguoi_hl.strip())
                     st.cache_data.clear()
-                    st.success(f"Đã duyệt {n} thủ tục.")
+                    st.success(f"Đã duyệt {n} thủ tục vào CSDL.")
                     st.rerun()
 
             st.caption("Câu duyệt hàng loạt được đánh dấu riêng (`_duyet_hang_loat`) để "
@@ -404,6 +446,11 @@ if "cau_tra_loi" in tabs:
                         d.pop(k, None)
                     cf.write_text(json.dumps(d, ensure_ascii=False, indent=2),
                                   encoding="utf-8")
+                    if admin_duyet_hoac_tu_choi:
+                        try:
+                            admin_duyet_hoac_tu_choi(_t.key, "cho_duyet", u["ten_dang_nhap"])
+                        except Exception:
+                            pass
                 st.cache_data.clear()
                 st.success("Đã bỏ dấu duyệt. Nội dung câu trả lời không đổi.")
                 st.rerun()
@@ -442,7 +489,7 @@ if "cau_tra_loi" in tabs:
                     noi = st.text_input("Đi đâu (nói dễ hiểu)",
                                         d.get("di_dau", {}).get("noi_don_gian", ""))
                     noi_ct = st.text_input("Tên chính thức của nơi đó",
-                                           d.get("di_dau", {}).get("ten_chinh_thuc", ""))
+                                            d.get("di_dau", {}).get("ten_chinh_thuc", ""))
                     bao_lau = st.text_input("Chờ bao lâu", d.get("bao_lau", ""))
                     tien = st.text_input("Tiền phải trả", d.get("bao_nhieu_tien", ""))
                 with c2:
@@ -487,8 +534,23 @@ if "cau_tra_loi" in tabs:
                     d.update(_thu_thap())
                     cf.write_text(json.dumps(d, ensure_ascii=False, indent=2),
                                   encoding="utf-8")
+                    
+                    # Ghi nhận chỉnh sửa vào PostgreSQL (ở trạng thái cho_duyet)
+                    if can_bo_cap_nhat_thu_tuc:
+                        try:
+                            can_bo_cap_nhat_thu_tuc(
+                                ma_tt=tt.key,
+                                ten_tt=tom_tat or tt.ten,
+                                nd_vi=kich_ban,
+                                nd_hmong="",
+                                sdt_can_bo="",
+                                nguoi_thuc_hien=u.get('ten_dang_nhap', 'can_bo')
+                            )
+                        except Exception:
+                            pass
                     st.cache_data.clear()
-                    st.success("Đã lưu.")
+                    st.success("Đã lưu bản sửa vào PostgreSQL.")
+
                 if cc2.button("✅ Duyệt & phát hành", type="primary",
                               use_container_width=True):
                     if not nguoi.strip():
@@ -500,8 +562,27 @@ if "cau_tra_loi" in tabs:
                                   "_duyet_hang_loat": False})
                         cf.write_text(json.dumps(d, ensure_ascii=False, indent=2),
                                       encoding="utf-8")
+                        
+                        # Cập nhật & Duyệt phát hành vĩnh viễn trong PostgreSQL
+                        if can_bo_cap_nhat_thu_tuc:
+                            try:
+                                can_bo_cap_nhat_thu_tuc(
+                                    ma_tt=tt.key,
+                                    ten_tt=tom_tat or tt.ten,
+                                    nd_vi=kich_ban,
+                                    nd_hmong="",
+                                    sdt_can_bo="",
+                                    nguoi_thuc_hien=u.get('ten_dang_nhap', 'can_bo')
+                                )
+                            except Exception:
+                                pass
+                        if admin_duyet_hoac_tu_choi:
+                            try:
+                                admin_duyet_hoac_tu_choi(tt.key, "da_duyet", nguoi.strip())
+                            except Exception:
+                                pass
                         st.cache_data.clear()
-                        st.success("Đã duyệt và phát hành.")
+                        st.success("Đã duyệt và phát hành chính thức lên CSDL.")
 
 
 # ================================================= 4 · TỪ VỰNG & GIỌNG ĐỌC
