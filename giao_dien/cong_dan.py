@@ -34,9 +34,27 @@ from core.translate import (dich_sang_mong, dich_sang_tay, dich_sang_viet,
                             dich_tay_sang_viet)
 from core.tts import NHAN_TANG, phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
 
-# Tích hợp kết nối CSDL PostgreSQL để lọc bài đã duyệt (SRS 9.55)
+# Tích hợp kết nối CSDL PostgreSQL an toàn để lọc bài đã duyệt
 try:
-    from core.database import lay_danh_sach_thu_tuc_cho_nguoi_dan
+    from core.database import get_db_connection
+    import psycopg2.extras
+    def lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa: str = ""):
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if tu_khoa.strip():
+                cur.execute(
+                    "SELECT * FROM thu_tuc_hanh_chinh WHERE (trang_thai = 'da_duyet' OR an = FALSE) AND (ten_thu_tuc ILIKE %s OR ma_thu_tuc ILIKE %s)",
+                    (f"%{tu_khoa.strip()}%", f"%{tu_khoa.strip()}%")
+                )
+            else:
+                cur.execute("SELECT * FROM thu_tuc_hanh_chinh WHERE trang_thai = 'da_duyet' OR an = FALSE")
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
 except ImportError:
     lay_danh_sach_thu_tuc_cho_nguoi_dan = None
 
@@ -48,9 +66,7 @@ ss.setdefault("audio_da_xu_ly", "")
 
 if not kb.load_kb():
     st.error(
-        "**Kho dữ liệu trống.** Hãy chạy một lần: `python tools/extract_tthc.py`\n\n"
-        "Lệnh này bóc 28 file PDF hướng dẫn đang bị nhúng bên trong 3 file Excel "
-        "ở `file_dichvucong/` ra thành `data/tthc/` + `data/manifest.json`."
+        "**Kho dữ liệu trống.** Hãy kiểm tra lại kết nối Cơ sở dữ liệu PostgreSQL."
     )
     st.stop()
 
@@ -154,7 +170,6 @@ def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
   var LOA=`{_SVG_LOA}`, DUNG=`{_SVG_DUNG}`;
   function ve(dangPhat){{ b.innerHTML = dangPhat ? DUNG : LOA; }}
 
-  // Chỉ một loa được phát tại một thời điểm
   var ID = Math.random().toString(36).slice(2);
   var kenh = null;
   try {{ kenh = new BroadcastChannel('lgb-loa'); }} catch(e) {{}}
@@ -379,7 +394,7 @@ if audio_in is not None:
         ss.audio_da_xu_ly = van_tay
         with st.spinner("Đang nghe bà con nói…"):
             van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong,
-                                   ngon_ngu=ma_ngon_ngu)
+                                    ngon_ngu=ma_ngon_ngu)
         if not van_ban:
             st.error("Máy chưa nghe rõ, bà con bấm nói lại nhé.")
             loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.",
@@ -577,7 +592,7 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
                 placeholder="Ví dụ: Vợ tôi mới sinh con, tôi muốn làm giấy khai sinh",
                 height=90)
             if st.form_submit_button("Gửi câu hỏi", type="primary",
-                                       use_container_width=True) and txt.strip():
+                                      use_container_width=True) and txt.strip():
                 xu_ly_cau_noi(txt.strip())
                 st.rerun()
 
@@ -587,16 +602,16 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
         # Tra cứu thủ tục công khai đã được phê duyệt trực tiếp từ PostgreSQL
         if lay_danh_sach_thu_tuc_cho_nguoi_dan:
             tu_khoa_db = st.text_input("🔍 Nhập tên thủ tục tra cứu từ CSDL:", "", key="tim_db_cong_dan")
-            if tu_khoa_db.strip():
-                ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
-                if ds_db:
-                    st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
-                    for item_db in ds_db:
-                        if st.button(f"📌 {item_db['ten_thu_tuc']} (Mã: {item_db['ma_thu_tuc']})", key=f"btn_db_{item_db['ma_thu_tuc']}"):
-                            xu_ly_cau_noi(item_db['ten_thu_tuc'])
-                            st.rerun()
-                else:
-                    st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
+            # Hiển thị mặc định danh sách khi mới mở hoặc khi gõ từ khóa
+            ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
+            if ds_db:
+                st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
+                for item_db in ds_db:
+                    if st.button(f"📌 {item_db['ten_thu_tuc']} (Mã: {item_db['ma_thu_tuc']})", key=f"btn_db_{item_db['ma_thu_tuc']}"):
+                        xu_ly_cau_noi(item_db['ten_thu_tuc'])
+                        st.rerun()
+            else:
+                st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
             st.divider()
 
         nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
