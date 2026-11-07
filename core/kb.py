@@ -31,7 +31,7 @@ class ThuTuc:
     raw_txt: str = ""
     sections: list[str] = field(default_factory=list)
     so_ky_tu: int = 0
-    an: bool = False            # ẩn khỏi danh sách cho bà con chọn
+    an: bool = False             # ẩn khỏi danh sách cho bà con chọn
     ghi_chu: str = ""
 
     @property
@@ -95,7 +95,7 @@ def load_kb() -> list[ThuTuc]:
     merged: dict[str, ThuTuc] = {}
     for r in raw.get("thu_tuc", []):
         key = r["key"]
-        if key in merged:                       # 1 thủ tục có thể thuộc 2 nhóm
+        if key in merged:               # 1 thủ tục có thể thuộc 2 nhóm
             if r.get("nhom") and r["nhom"] not in merged[key].nhom:
                 merged[key].nhom.append(r["nhom"])
             continue
