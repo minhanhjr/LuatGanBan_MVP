@@ -1,268 +1,644 @@
 # -*- coding: utf-8 -*-
-"""Dashboard quản trị kho hướng dẫn - Cập nhật dùng PostgreSQL đầy đủ mọi tab.
+"""Cổng người dân — hỏi đáp thủ tục bằng giọng nói.
 
-Mỗi tab tương ứng một quyền trong core/auth.QUYEN. Cán bộ chỉ thấy tab mình
-được cấp; quản trị viên thấy tất cả.
+Nguyên tắc giao diện (voice-first):
+  * MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự chạy hết chuỗi,
+    không có nút "xử lý" thứ hai.
+  * Không hiện con số kỹ thuật. Bà con không cần biết "độ tin cậy 10%";
+    họ chỉ cần biết máy nghe rõ hay chưa. Mọi chỉ số dời vào mục dành cho
+    cán bộ ở cuối trang.
+  * Chữ nào cũng có loa. Người không đọc được vẫn phải dùng được trọn vẹn,
+    nên mọi nội dung trả lời đều kèm trình phát tiếng.
+  * Gõ chữ là đường phụ, đặt cuối trang, cỡ nhỏ.
 """
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
-import sys
+import base64
+import hashlib
+import time
+from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
-from psycopg2.extras import RealDictCursor
+from streamlit.components.v1 import html as _html
+
+# BẢO VỆ GIAO DIỆN: Chống Google Chrome tự động dịch làm vỡ chữ
+st.markdown('<html lang="vi"></html>', unsafe_allow_html=True)
 
 from core import auth, kb
-from core.config import (AUDIO_BANK, CACHE_AUDIO, CACHE_SIMPLIFIED,
-                         DANH_MUC_THU_TUC, ROOT)
-from core.llm import (LoiQuota, danh_sach_model, ly_do_chan, model_dang_dung,
-                        so_den, xoa_so_den)
-from core.simplify import CAU_HOI_MAC_DINH, _cache_file, don_gian_hoa
-from core.translate import GLOSSARY_FILE
+from core.config import (DANH_MUC_THU_TUC, HMONG_ORTHOGRAPHY,
+                         NGUONG_TU_TIN, TTS_HMONG_PROVIDER)
+from core.llm import LoiQuota, chon_model
+from core import ngon_ngu as NN
+from core.router import dinh_tuyen
+from core.simplify import CAU_HOI_MAC_DINH, don_gian_hoa, thanh_van_ban_doc
+from core.stt import nghe
+from core.translate import (dich_sang_mong, dich_sang_tay, dich_sang_viet,
+                            dich_tay_sang_viet)
+from core.tts import NHAN_TANG, phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
 
-# Nhập các hàm DB từ core.database an toàn
+# Tích hợp kết nối CSDL PostgreSQL an toàn để lọc bài đã duyệt
 try:
-    from core.database import (can_bo_cap_nhat_thu_tuc, 
-                               admin_lay_danh_sach_theo_trang_thai, 
-                               admin_duyet_hoac_tu_choi,
-                               get_db_connection)
-except ImportError:
-    can_bo_cap_nhat_thu_tuc = None
-    admin_lay_danh_sach_theo_trang_thai = None
-    admin_duyet_hoac_tu_choi = None
-    get_db_connection = None
-
-EXCEL_DIR = ROOT / "file_dichvucong"
-
-u = auth.nguoi_dang_nhap()
-if not u:
-    st.error("Bạn cần đăng nhập ở thanh bên trái.")
-    st.stop()
-
-st.title("🛠️ Quản trị kho hướng dẫn")
-st.caption(f"Đang đăng nhập: **{u.get('mo_ta') or u['ten_dang_nhap']}** · "
-           f"{'Quản trị viên (toàn quyền)' if auth.la_admin() else 'Cán bộ'}")
-st.caption("Dữ liệu được lưu đồng bộ vĩnh viễn vào Cơ sở dữ liệu PostgreSQL.")
-
-TAB_DEF = [
-    ("kho_thu_tuc",      "📊 Kho thủ tục (DB)"),
-    ("cap_nhat_du_lieu", "📥 Cập nhật dữ liệu"),
-    ("cau_tra_loi",      "✅ Kiểm duyệt câu trả lời (DB)"),
-    ("tu_vung_giong",    "🗣️ Từ vựng & giọng đọc"),
-    ("bo_nho_tam",       "🧹 Bộ nhớ tạm"),
-]
-duoc_phep = [(q, nhan) for q, nhan in TAB_DEF if auth.co_quyen(q)]
-if not duoc_phep:
-    st.warning("Tài khoản của bạn chưa được cấp quyền nào trên trang này.")
-    st.stop()
-
-tabs = dict(zip([q for q, _ in duoc_phep], st.tabs([n for _, n in duoc_phep])))
-
-
-# =========================================================== 1 · KHO THỦ TỤC
-if "kho_thu_tuc" in tabs:
-    with tabs["kho_thu_tuc"]:
+    from core.database import get_db_connection
+    import psycopg2.extras
+    def lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa: str = ""):
         try:
             conn = get_db_connection()
-            cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute("SELECT * FROM thu_tuc_hanh_chinh ORDER BY id DESC")
-            ds_db = cur.fetchall()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if tu_khoa.strip():
+                cur.execute(
+                    "SELECT * FROM thu_tuc_hanh_chinh WHERE (trang_thai = 'da_duyet' OR an = FALSE) AND (ten_thu_tuc ILIKE %s OR ma_thu_tuc ILIKE %s)",
+                    (f"%{tu_khoa.strip()}%", f"%{tu_khoa.strip()}%")
+                )
+            else:
+                cur.execute("SELECT * FROM thu_tuc_hanh_chinh WHERE trang_thai = 'da_duyet' OR an = FALSE")
+            rows = cur.fetchall()
             cur.close()
             conn.close()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+except ImportError:
+    lay_danh_sach_thu_tuc_cho_nguoi_dan = None
+
+ss = st.session_state
+ss.setdefault("danh_sach_yeu_cau", [])
+ss.setdefault("ket_qua", None)
+ss.setdefault("cau_noi", "")
+ss.setdefault("audio_da_xu_ly", "")
+
+if not kb.load_kb():
+    st.error("**Kho dữ liệu trống.** Hãy kiểm tra lại kết nối Cơ sở dữ liệu PostgreSQL.")
+    st.stop()
+
+
+# ==========================================================================
+# ĐIỀU HƯỚNG TRANG GIỚI THIỆU
+# ==========================================================================
+col_sp1, col_btn_gt, col_sp2 = st.columns([3, 1.4, 3])
+with col_btn_gt:
+    if st.button("📖 Giới thiệu dự án", use_container_width=True, help="Xem thông tin chi tiết và ý nghĩa dự án"):
+        st.switch_page("giao_dien/gioi_thieu.py")
+
+st.markdown("---")
+
+
+# ==========================================================================
+# HÀM CÓ CACHE
+# ==========================================================================
+@st.cache_data(ttl=3600, show_spinner=False)
+def _dinh_tuyen(cau_noi: str) -> dict:
+    r = dinh_tuyen(cau_noi)
+    r["_key"] = r["thu_tuc"].key if r["thu_tuc"] else ""
+    r.pop("thu_tuc", None)
+    return r
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _don_gian_hoa(key: str, cau_hoi: str) -> dict:
+    return don_gian_hoa(kb.theo_key(key), cau_hoi)
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _dich_mong(text: str) -> dict:
+    return dich_sang_mong(text)
+
+
+PHIEN_BAN_DICH_TAY = 2
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _dich_tay(text: str, phien_ban: int = PHIEN_BAN_DICH_TAY) -> str:
+    return dich_sang_tay(text)
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _tts_vi(text: str) -> str:
+    try:
+        p = tts_tieng_viet(text)
+        return str(p) if p else ""
+    except Exception:
+        return ""
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _audio_b64(duong_dan: str) -> tuple[str, str]:
+    p = Path(duong_dan)
+    if not p.exists():
+        return "", ""
+    mime = "audio/mpeg" if p.suffix.lower() == ".mp3" else "audio/wav"
+    return base64.b64encode(p.read_bytes()).decode(), mime
+
+
+_SVG_LOA = ('<svg width="38" height="38" viewBox="0 0 24 24" fill="white">'
+            '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05'
+            'c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 '
+            '5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>')
+_SVG_DUNG = ('<svg width="34" height="34" viewBox="0 0 24 24" fill="white">'
+             '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>')
+
+
+def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
+    if not duong_dan:
+        return False
+    b64, mime = _audio_b64(str(duong_dan))
+    if not b64:
+        return False
+    tu_phat_js = ("a.play().then(function(){}).catch(function(){"
+                  "tt.textContent='Bấm vào loa để nghe';});") if tu_phat else ""
+    _html(f"""
+<div style="display:flex;align-items:center;gap:16px;
+            font-family:'Times New Roman',Times,serif;padding:4px 0;">
+  <button id="b" aria-label="Nghe" style="
+      width:76px;height:76px;min-width:76px;border-radius:50%;border:4px solid #cfe0f7;
+      background:#0B4F9E;cursor:pointer;display:flex;align-items:center;
+      justify-content:center;box-shadow:0 4px 14px rgba(11,79,158,.35);
+      transition:transform .15s;"></button>
+  <div>
+    <div style="font-size:19px;font-weight:bold;color:#0B4F9E;">{nhan}</div>
+    <div id="tt" style="font-size:14px;color:#666;margin-top:2px;">Bấm để nghe</div>
+  </div>
+  <audio id="a" src="data:{mime};base64,{b64}" preload="auto"></audio>
+</div>
+<script>
+(function(){{
+  var a=document.getElementById('a'), b=document.getElementById('b'),
+      tt=document.getElementById('tt');
+  var LOA=`{_SVG_LOA}`, DUNG=`{_SVG_DUNG}`;
+  function ve(dangPhat){{ b.innerHTML = dangPhat ? DUNG : LOA; }}
+
+  var ID = Math.random().toString(36).slice(2);
+  var kenh = null;
+  try {{ kenh = new BroadcastChannel('lgb-loa'); }} catch(e) {{}}
+  if (kenh) {{
+    kenh.onmessage = function(ev){{ if (ev.data !== ID && !a.paused) {{ a.pause(); }} }};
+  }}
+  function imCacLoaKhac(){{
+    if (kenh) {{ try {{ kenh.postMessage(ID); }} catch(e) {{}} }}
+    try {{
+      var ds = [];
+      var khung = window.parent.document.querySelectorAll('iframe');
+      for (var i = 0; i < khung.length; i++) {{
+        try {{
+          var d = khung[i].contentDocument;
+          if (d && d !== document) {{ ds = ds.concat([].slice.call(d.querySelectorAll('audio'))); }}
+        }} catch(e) {{}}
+      }}
+      ds = ds.concat([].slice.call(window.parent.document.querySelectorAll('audio')));
+      ds.forEach(function(x){{ if (x !== a && !x.paused) {{ x.pause(); }} }});
+    }} catch(e) {{}}
+  }}
+  ve(false);
+  b.onclick=function(){{ if(a.paused){{a.play();}} else {{a.pause();}} }};
+  b.onmousedown=function(){{ b.style.transform='scale(.94)'; }};
+  b.onmouseup=function(){{ b.style.transform='scale(1)'; }};
+  a.onplay =function(){{ imCacLoaKhac(); ve(true);  tt.textContent='Đang đọc…'; }};
+  a.onpause=function(){{ ve(false); tt.textContent='Bấm để nghe lại'; }};
+  a.onended=function(){{ ve(false); tt.textContent='Bấm để nghe lại'; }};
+  {tu_phat_js}
+}})();
+</script>
+""", height=100)
+    return True
+
+
+def loa(text: str, *, nhan: str = "Nghe", tu_phat: bool = False) -> None:
+    if not (text or "").strip():
+        return
+    p = _tts_vi(text)
+    if p:
+        nut_loa(p, nhan=nhan, tu_phat=tu_phat)
+
+
+def _thong_diep_loi(e: Exception) -> str:
+    if isinstance(e, LoiQuota):
+        return ("Máy đang bận, bà con chờ vài phút rồi hỏi lại nhé. "
+                "Hoặc chọn thủ tục ở mục **Cách khác** cuối trang.")
+    s = str(e)
+    if "GEMINI_API_KEY" in s:
+        return "Máy chưa được cài đặt xong. Bà con báo cán bộ giúp nhé."
+    if "model" in s.lower() and ("404" in s or "not_found" in s.lower()):
+        return "Máy đang bảo trì. Bà con báo cán bộ giúp nhé."
+    return "Máy đang bận. Bà con thử lại sau ít phút nhé."
+
+
+def _them_tieng_mong(box, kq: dict, tt, *, la_tieng_chon: bool) -> None:
+    box.write("Đang dịch sang tiếng Mông…")
+    t = time.perf_counter()
+    try:
+        kq["mong"] = _dich_mong(kq["kich_ban"])
+        kq["thoi_gian"]["dich_mong"] = time.perf_counter() - t
+        t = time.perf_counter()
+        audio, tang = phat_tieng_mong(kq["mong"]["rpa"], key=tt.key)
+        kq["thoi_gian"]["tts_mong"] = time.perf_counter() - t
+        kq["audio_mong"] = str(audio) if audio else ""
+        kq["tang_tts"] = tang
+    except Exception as e:
+        if la_tieng_chon:
+            kq["canh_bao"] = "Phần tiếng Mông chưa sẵn sàng, bà con nghe tạm tiếng Việt nhé."
+        kq["_loi_mong"] = str(e)
+
+
+def _them_tieng_tay(box, kq: dict, tt=None, *, la_tieng_chon: bool) -> None:
+    box.write("Đang dịch sang tiếng Tày…")
+    t = time.perf_counter()
+    try:
+        kq["tay"] = _dich_tay(kq["kich_ban"])
+        kq["thoi_gian"]["dich_tay"] = time.perf_counter() - t
+        try:
+            kq["model_dich_tay"] = chon_model("quality")
+        except Exception: pass
+        t = time.perf_counter()
+        audio, tang = phat_tieng_tay(kq["tay"])
+        kq["thoi_gian"]["tts_tay"] = time.perf_counter() - t
+        kq["audio_tay"] = str(audio) if audio else ""
+        kq["tang_tts_tay"] = tang
+    except Exception as e:
+        if la_tieng_chon:
+            kq["canh_bao"] = "Phần tiếng Tày chưa sẵn sàng, bà con nghe tạm tiếng Việt nhé."
+        kq["_loi_tay"] = str(e)
+
+
+_XU_LY_TIENG = {"mong": _them_tieng_mong, "tay": _them_tieng_tay}
+
+
+def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
+                  ngon_ngu_chon: str = "mong",
+                  cac_tieng: list[str] | None = None) -> dict:
+    if cac_tieng is None:
+        cac_tieng = [ngon_ngu_chon]
+    t0 = time.perf_counter()
+    kq: dict = {"cau_noi": cau_noi, "thoi_gian": {}}
+
+    with st.status("Đang tìm hướng dẫn cho bà con…", expanded=False) as box:
+        box.write("Đang xem bà con cần làm việc gì…")
+        t = time.perf_counter()
+        try:
+            tuyen = _dinh_tuyen(cau_noi)
         except Exception as e:
-            st.error(f"Lỗi đọc DB: {e}")
-            ds_db = []
+            kq["loi"] = _thong_diep_loi(e)
+            box.update(label="Chưa xong", state="error", expanded=False)
+            return kq
+        kq["thoi_gian"]["dinh_tuyen"] = time.perf_counter() - t
+        kq["tuyen"] = tuyen
+        tt = kb.theo_key(tuyen["_key"]) if tuyen["_key"] else None
+        kq["thu_tuc"] = tt
 
-        rows = []
-        so_an, so_da_duyet = 0, 0
-        for r in ds_db:
-            trang_thai_hien_thi = ""
-            if r["trang_thai"] == "da_duyet":
-                trang_thai_hien_thi = "✅ Đã duyệt"
-                so_da_duyet += 1
-            elif r["trang_thai"] == "cho_duyet":
-                trang_thai_hien_thi = "🟡 Chờ duyệt"
-            elif r["trang_thai"] == "tu_choi":
-                trang_thai_hien_thi = "❌ Từ chối"
-                so_an += 1
-                
-            rows.append({
-                "Mã": r["ma_thu_tuc"], 
-                "Tên thủ tục": r["ten_thu_tuc"],
-                "Cập nhật bởi": r.get("nguoi_tao", "System"),
-                "Ký tự": len(r.get("noi_dung_tieng_viet", "") or ""), 
-                "Trạng thái": trang_thai_hien_thi,
-            })
-            
-        df = pd.DataFrame(rows)
+        if tuyen["can_can_bo"] or tt is None:
+            box.update(label="Cần cán bộ hỗ trợ", state="complete", expanded=False)
+            return kq
+        box.write(f"Đúng việc: {tt.ten}")
 
-        c = st.columns(4)
-        c[0].metric("Tổng Thủ tục trong DB", len(df))
-        c[1].metric("Đã duyệt (Hiện trên web)", so_da_duyet)
-        c[2].metric("Chờ duyệt", len(df) - so_da_duyet - so_an)
-        c[3].metric("Từ chối (Ẩn)", so_an)
+        box.write("Đang đọc hướng dẫn của Nhà nước…")
+        t = time.perf_counter()
+        try:
+            kq["don_gian"] = _don_gian_hoa(tt.key, CAU_HOI_MAC_DINH)
+        except Exception as e:
+            kq["loi"] = _thong_diep_loi(e)
+            box.update(label="Chưa xong", state="error", expanded=False)
+            return kq
+        kq["thoi_gian"]["don_gian_hoa"] = time.perf_counter() - t
+        kq["kich_ban"] = thanh_van_ban_doc(kq["don_gian"])
 
-        st.divider()
-        st.subheader("Cán bộ: Sửa nội dung (Lưu nháp / Chờ duyệt)")
-        st.caption("Chỉnh sửa nội dung tại đây. Lưu ý: Mọi sửa đổi sẽ bị chuyển thành trạng thái **'Chờ duyệt'** "
-                   "và bài viết sẽ tạm ẩn khỏi người dân cho đến khi Admin duyệt.")
+        box.write("Đang chuẩn bị giọng đọc…")
+        kq["audio_viet"] = _tts_vi(kq["kich_ban"])
 
-        df_sua = st.data_editor(
-            df, use_container_width=True, hide_index=True, key="ed_kho",
-            column_config={
-                "Mã": st.column_config.TextColumn(disabled=True, width="small"),
-                "Tên thủ tục": st.column_config.TextColumn(width="large"),
-                "Cập nhật bởi": st.column_config.TextColumn(disabled=True),
-                "Ký tự": st.column_config.NumberColumn(disabled=True),
-                "Trạng thái": st.column_config.TextColumn(disabled=True),
-            },
+        if phat_giong_mong:
+            for ma in cac_tieng:
+                xu_ly = _XU_LY_TIENG.get(ma)
+                if xu_ly:
+                    xu_ly(box, kq, tt, la_tieng_chon=(ma == ngon_ngu_chon))
+
+        kq["thoi_gian"]["tong"] = time.perf_counter() - t0
+        box.update(label="Đã có hướng dẫn cho bà con", state="complete", expanded=False)
+    return kq
+
+
+def xu_ly_cau_noi(van_ban: str) -> None:
+    ss.cau_noi = van_ban
+    ma = ss.get("ma_ngon_ngu", "mong")
+    cac = list(ss.get("cac_ngon_ngu") or [ma])
+    kq = chay_pipeline(van_ban, ngon_ngu_chon=ma, cac_tieng=cac)
+    kq["la_tieng_mong"] = ma == "mong"
+    kq["ma_ngon_ngu"] = ma
+    kq["cac_ngon_ngu"] = cac
+    ss.ket_qua = kq
+
+
+# ==========================================================================
+# 1. CHỌN TIẾNG
+# ==========================================================================
+_DS_TIENG = NN.dang_dung()
+_MA_THEO_NHAN = {n.nhan: n.ma for n in _DS_TIENG}
+_MAC_DINH = [n.nhan for n in _DS_TIENG if n.ma in NN.MAC_DINH] or [_DS_TIENG[0].nhan]
+
+st.html("""<style>
+  .st-key-lgb-chon-tieng { max-width: 560px; margin: 0 auto; }
+  .st-key-lgb-chon-tieng label p { font-size: 18px !important; font-weight: bold !important;
+                                   color: #003366 !important; text-align: center; }
+  .st-key-lgb-chon-tieng [data-baseweb="select"] > div { min-height: 52px; font-size: 18px; }
+  .st-key-lgb-chon-tieng [data-baseweb="tag"] { font-size: 17px !important; height: auto !important;
+                                               padding: 6px 10px !important; }
+</style>""")
+try:
+    _khung_chon = st.container(key="lgb-chon-tieng")
+except TypeError:
+    _khung_chon = st.container()
+
+chon = _khung_chon.multiselect(
+    "Bà con nghe bằng tiếng gì? (chọn được nhiều tiếng)",
+    options=list(_MA_THEO_NHAN),
+    default=_MAC_DINH,
+    key="chon_ngon_ngu",
+    placeholder="Bấm vào đây để chọn tiếng",
+    help="Tiếng chọn đầu tiên là tiếng bà con nói. Các tiếng sau để nghe thêm.",
+)
+if not chon:
+    _khung_chon.caption("Chưa chọn tiếng nào, máy sẽ dùng tiếng Việt.")
+
+cac_ngon_ngu = [_MA_THEO_NHAN[x] for x in chon] or [NN.MA_TIENG_VIET]
+ma_ngon_ngu = cac_ngon_ngu[0]
+la_tieng_mong = ma_ngon_ngu == "mong"
+ss.la_tieng_mong = la_tieng_mong
+ss.ma_ngon_ngu = ma_ngon_ngu
+ss.cac_ngon_ngu = cac_ngon_ngu
+
+# ==========================================================================
+# 2. MỘT NÚT DUY NHẤT
+# ==========================================================================
+st.markdown(
+    '<div style="text-align:center;font-size:26px;font-weight:bold;'
+    'color:#003366;margin:10px 0 2px 0;">Bấm vào đây để nói</div>',
+    unsafe_allow_html=True,
+)
+
+audio_in = st.audio_input("Bấm micro để nói", label_visibility="collapsed")
+
+if audio_in is not None:
+    raw = audio_in.getvalue()
+    van_tay = hashlib.sha256(raw).hexdigest()[:16]
+    if van_tay != ss.audio_da_xu_ly and len(raw) > 50:
+        ss.audio_da_xu_ly = van_tay
+        with st.spinner("Đang nghe bà con nói…"):
+            van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong,
+                                    ngon_ngu=ma_ngon_ngu)
+        if not van_ban:
+            st.error("Máy chưa nghe rõ, bà con bấm nói lại nhé.")
+            loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.",
+                nhan="Nghe lại lời nhắc", tu_phat=True)
+        else:
+            if ma_ngon_ngu in ("mong", "tay"):
+                dong_vi = [l for l in van_ban.splitlines() if l.startswith("VI:")]
+                if dong_vi:
+                    van_ban = dong_vi[0][3:].strip()
+                elif ma_ngon_ngu == "tay":
+                    van_ban = dich_tay_sang_viet(van_ban)
+                else:
+                    van_ban = dich_sang_viet(van_ban)
+            st.success(f"Bà con nói: *{van_ban}*")
+            xu_ly_cau_noi(van_ban)
+    elif 0 < len(raw) <= 50:
+        st.warning("Bà con bấm micro rồi nói rõ hơn một chút nhé.")
+
+
+# ==========================================================================
+# 3. KẾT QUẢ
+# ==========================================================================
+def nut_goi_can_bo(kq: dict) -> None:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🙋 CẦN CÁN BỘ HỖ TRỢ TRỰC TIẾP", use_container_width=True):
+        tt = kq.get("thu_tuc")
+        ss.danh_sach_yeu_cau.append({
+            "thoi_gian": datetime.now().strftime("%d/%m %H:%M:%S"),
+            "van_de": tt.ten if tt else kq["tuyen"]["ten_nhom"],
+            "ma": tt.ma_thu_tuc if tt else "",
+            "chi_tiet": kq["cau_noi"],
+            "tin_cay": kq["tuyen"].get("tin_cay_thu_tuc", 0),
+            "trang_thai": "Mới",
+        })
+        st.success("✅ Đã gửi. Cán bộ sẽ liên hệ với bà con.")
+
+
+def hien_ket_qua(kq: dict) -> None:
+    if kq.get("loi"):
+        st.error(kq["loi"])
+        loa(kq["loi"], nhan="Nghe lời nhắc", tu_phat=True)
+        kq.setdefault("tuyen", {"ten_nhom": "VẤN ĐỀ KHÁC", "tin_cay_thu_tuc": 0})
+        nut_goi_can_bo(kq)
+        return
+    if kq.get("canh_bao"):
+        st.info(kq["canh_bao"])
+
+    tuyen, tt = kq["tuyen"], kq.get("thu_tuc")
+
+    if tuyen["can_can_bo"] or tt is None:
+        cau_hoi = (tuyen.get("cau_hoi_lam_ro")
+                   or "Bà con muốn hỏi về việc gì ạ? Bà con nói rõ hơn giúp máy nhé.")
+        st.markdown(
+            f'<div style="font-size:22px;line-height:1.6;padding:14px 16px;'
+            f'background:#FFF8E1;border-left:5px solid #F0A500;border-radius:8px;">'
+            f'❓ {cau_hoi}</div>',
+            unsafe_allow_html=True,
         )
+        loa(cau_hoi, nhan="Nghe câu hỏi", tu_phat=True)
+        st.caption("Bà con bấm micro ở trên để nói lại, hoặc bấm nút dưới để gặp cán bộ.")
+        nut_goi_can_bo(kq)
+        return
 
-        if st.button("💾 Lưu thay đổi (Gửi yêu cầu duyệt)", type="primary", use_container_width=True):
-            goc = df.set_index("Mã").to_dict("index")
-            n = 0
-            for _, r in df_sua.iterrows():
-                key = r["Mã"]
-                cu = goc.get(key, {})
-                if str(r["Tên thủ tục"]).strip() != str(cu.get("Tên thủ tục", "")):
-                    if can_bo_cap_nhat_thu_tuc:
-                        try:
-                            can_bo_cap_nhat_thu_tuc(
-                                ma_tt=key,
-                                ten_tt=str(r["Tên thủ tục"]).strip(),
-                                nd_vi="Cán bộ đã đổi tên thủ tục",
-                                nd_hmong="",
-                                sdt_can_bo="",
-                                nguoi_thuc_hien=u.get('ten_dang_nhap', 'can_bo')
-                            )
-                            n += 1
-                        except Exception as e:
-                            st.error(f"Lỗi: {e}")
-            if n > 0:
-                st.success(f"Đã cập nhật {n} thủ tục và chuyển sang chế độ CHỜ DUYỆT.")
-                st.cache_data.clear()
+    dg = kq["don_gian"]
+    st.success(f"🏷️ **{tt.ten}**")
+    if dg.get("_da_duyet"):
+        st.caption(f"✅ Nội dung đã được **{dg.get('_nguoi_duyet','cán bộ')}** duyệt.")
+
+    with st.container(border=True):
+        st.markdown('<div class="the-tra-loi">', unsafe_allow_html=True)
+        st.markdown(f"**{dg.get('tom_tat_1_cau','')}**")
+        di = dg.get("di_dau", {})
+        st.markdown(f"📍 **Đi đâu:** {di.get('noi_don_gian','—')}")
+        bb = [m for m in dg.get("mang_gi", []) if m.get("bat_buoc")]
+        kbb = [m for m in dg.get("mang_gi", []) if not m.get("bat_buoc")]
+        if bb:
+            st.markdown("🎒 **Mang theo:**")
+            for m in bb:
+                sl = f" — {m['so_luong']}" if m.get("so_luong") else ""
+                st.markdown(f"  • {m['ten_don_gian']}{sl}")
+        c1, c2 = st.columns(2)
+        c1.markdown(f"⏱️ **Chờ:** {dg.get('bao_lau','—')}")
+        c2.markdown(f"💰 **Tiền:** {dg.get('bao_nhieu_tien','—')}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    ma_chon = kq.get("ma_ngon_ngu") or ("mong" if kq.get("la_tieng_mong", True) else "viet")
+    cac_ma = list(kq.get("cac_ngon_ngu") or [ma_chon])
+    if NN.MA_TIENG_VIET not in cac_ma:
+        cac_ma.append(NN.MA_TIENG_VIET)
+
+    def _ghi_chu(ma: str) -> str:
+        if ma == "mong" and kq.get("tang_tts") == "vi_phonetic":
+            return "Giọng máy đọc tiếng dân tộc thiểu số."
+        if ma == "tay":
+            return "Giọng máy đọc tiếng dân tộc thiểu số."
+        return ""
+
+    cac_loa = []
+    for ma in cac_ma:
+        nn = NN.theo_ma(ma)
+        duong_dan = kq.get(f"audio_{ma}", "")
+        if ma != NN.MA_TIENG_VIET and not duong_dan:
+            continue
+        ten = nn.ten if nn else ma
+        cac_loa.append((ma, duong_dan, f"Nghe bằng {ten[:1].lower()}{ten[1:]}",
+                        _ghi_chu(ma)))
+
+    co_tieng_chon = any(ma == ma_chon for ma, *_ in cac_loa)
+    tieng_tu_phat = ma_chon if co_tieng_chon else "viet"
+
+    for ma, duong_dan, nhan, ghi_chu in cac_loa:
+        if ma == "viet" and not duong_dan:
+            loa(kq.get("kich_ban", ""), nhan=nhan, tu_phat=(ma == tieng_tu_phat))
+        else:
+            nut_loa(duong_dan, nhan=nhan, tu_phat=(ma == tieng_tu_phat))
+        if ghi_chu:
+            st.caption(ghi_chu)
+
+    if kq.get("tay"):
+        with st.expander("📖 Xem chữ tiếng Tày"):
+            st.caption("chữ Tày–Nùng hệ Latinh · bản dịch máy, chưa được duyệt")
+            st.markdown(f"### {kq['tay']}")
+
+    if kq.get("mong"):
+        with st.expander("📖 Xem chữ tiếng Mông"):
+            nhan_ortho = ("chữ Mông kiểu Việt Nam" if HMONG_ORTHOGRAPHY == "vn"
+                          else "chữ Mông RPA")
+            st.caption(nhan_ortho)
+            st.markdown(f"### {kq['mong']['hien_thi']}")
+            st.text(f"RPA        : {kq['mong']['rpa']}")
+            st.text(f"Phiên âm VN: {kq['mong']['vn']}")
+
+    la_can_bo = bool(auth.nguoi_dang_nhap())
+
+    with st.expander("⚖️ Căn cứ pháp lý & đối chiếu tài liệu gốc"):
+        st.caption(f"Mã thủ tục {tt.ma_thu_tuc} · cấp {tt.cap_thuc_hien}")
+        if la_can_bo:
+            cot1, cot2 = st.columns(2)
+            cot1.metric("Độ tin cậy bản tóm tắt", f"{dg.get('do_tin_cay', 0):.0%}")
+            cot2.metric("Độ tin cậy phân loại", f"{tuyen.get('tin_cay_thu_tuc', 0):.0%}")
+            st.caption(f"Giọng Mông đã dùng: {NHAN_TANG.get(kq.get('tang_tts',''), '—')}")
+            if kq.get("_loi_mong"):
+                st.caption(f"Lỗi tiếng Mông: {kq['_loi_mong'][:200]}")
+            if kq.get("tang_tts_tay"):
+                st.caption(f"Giọng Tày đã dùng: {NHAN_TANG.get(kq['tang_tts_tay'], '—')}"
+                           + (f" · dịch bằng {kq['model_dich_tay']}"
+                              if kq.get("model_dich_tay") else ""))
+            if kq.get("_loi_tay"):
+                st.caption(f"Lỗi tiếng Tày: {kq['_loi_tay'][:200]}")
+        if dg.get("chua_ro"):
+            st.warning("Tài liệu **không nêu rõ**: " + "; ".join(dg["chua_ro"]))
+        for l in dg.get("luu_y", []):
+            st.markdown(f"- {l}")
+        if dg.get("cac_buoc"):
+            st.markdown("**Các bước:**")
+            for i, b in enumerate(dg["cac_buoc"], 1):
+                st.markdown(f"{i}. {b}")
+        if dg.get("trich_dan"):
+            st.markdown("**Trích nguyên văn tài liệu gốc:**")
+            for q in dg["trich_dan"]:
+                st.markdown(f"> {q}")
+        if kbb:
+            st.markdown("**Giấy tờ không bắt buộc:** "
+                        + ", ".join(m["ten_don_gian"] for m in kbb))
+        if tt.pdf_path.exists():
+            st.download_button("⬇️ Tải file hướng dẫn gốc (PDF)",
+                               tt.pdf_path.read_bytes(),
+                               file_name=f"{tt.ma_thu_tuc}.pdf", mime="application/pdf")
+        if la_can_bo:
+            tg = kq.get("thoi_gian", {})
+            st.caption("Thời gian xử lý: "
+                       + "  ·  ".join(f"{k} {v:.1f}s" for k, v in tg.items()))
+
+    nut_goi_can_bo(kq)
+
+
+if ss.ket_qua:
+    st.write("---")
+    hien_ket_qua(ss.ket_qua)
+
+
+# ==========================================================================
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (Tích hợp tra cứu CSDL GỌN GÀNG)
+# ==========================================================================
+st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
+
+with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh sách"):
+    t_go, t_chon = st.tabs(["Gõ câu hỏi", "Chọn thủ tục"])
+
+    with t_go:
+        with st.form("form_go", clear_on_submit=False):
+            txt = st.text_area(
+                "Bà con cần hỏi việc gì?",
+                placeholder="Ví dụ: Vợ tôi mới sinh con, tôi muốn làm giấy khai sinh",
+                height=90)
+            if st.form_submit_button("Gửi câu hỏi", type="primary",
+                                      use_container_width=True) and txt.strip():
+                xu_ly_cau_noi(txt.strip())
                 st.rerun()
 
-
-# =========================================================== 2 · CẬP NHẬT DỮ LIỆU
-if "cap_nhat_du_lieu" in tabs:
-    with tabs["cap_nhat_du_lieu"]:
-        st.subheader("Cập nhật dữ liệu từ file Excel / PDF")
-        st.caption("Đặt các file dịch vụ công mới vào thư mục `file_dichvucong/` trên VPS rồi bấm nút bên dưới.")
-        if EXCEL_DIR.exists():
-            files = list(EXCEL_DIR.glob("*.xlsx")) + list(EXCEL_DIR.glob("*.pdf"))
-            st.write(f"Tìm thấy **{len(files)}** tệp nguồn trong `file_dichvucong/`.")
-            for f in files:
-                st.text(f" - {f.name} ({f.stat().st_size / 1024:.1f} KB)")
-        else:
-            st.warning("Thư mục `file_dichvucong/` chưa tồn tại.")
-
-        if st.button("🚀 Chạy script trích xuất dữ liệu (extract_tthc.py)", type="primary"):
-            with st.spinner("Đang trích xuất dữ liệu..."):
-                try:
-                    res = subprocess.run([sys.executable, "tools/extract_tthc.py"], capture_output=True, text=True, timeout=120)
-                    if res.returncode == 0:
-                        st.success("Trích xuất thành công!")
-                        st.code(res.stdout)
-                    else:
-                        st.error("Có lỗi xảy ra khi trích xuất:")
-                        st.code(res.stderr)
-                except Exception as ex:
-                    st.error(f"Lỗi thực thi: {ex}")
-
-
-# =========================================================== 3 · KIỂM DUYỆT CÂU TRẢ LỜI
-if "cau_tra_loi" in tabs:
-    with tabs["cau_tra_loi"]:
-        st.subheader("Admin: Phê duyệt Thủ tục (PostgreSQL)")
-        st.caption("Chỉ những thủ tục có trạng thái **'Đã duyệt'** mới hiển thị bên phía Người dân.")
-
-        if admin_lay_danh_sach_theo_trang_thai:
-            ds_cho_duyet = admin_lay_danh_sach_theo_trang_thai('cho_duyet')
-            ds_da_duyet = admin_lay_danh_sach_theo_trang_thai('da_duyet')
+    with t_chon:
+        st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
+        
+        if lay_danh_sach_thu_tuc_cho_nguoi_dan:
+            tu_khoa_db = st.text_input("🔍 Nhập tên thủ tục tra cứu từ CSDL:", "", key="tim_db_cong_dan")
+            ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
             
-            c = st.columns(2)
-            c[0].metric("Bài đang chờ duyệt", len(ds_cho_duyet))
-            c[1].metric("Bài đã duyệt (Live)", len(ds_da_duyet))
-            
-            if ds_cho_duyet:
-                st.markdown("### Danh sách bài chờ duyệt")
-                for r in ds_cho_duyet:
-                    with st.expander(f"🟡 {r['ma_thu_tuc']} - {r['ten_thu_tuc']}"):
-                        st.caption(f"Cập nhật lần cuối bởi: {r.get('nguoi_tao', 'N/A')}")
-                        st.text_area("Nội dung", r.get("noi_dung_tieng_viet", ""), height=100, disabled=True, key=f"txt_{r['ma_thu_tuc']}")
+            if ds_db:
+                st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
+                
+                # SỬA LỖI TRÀN MÀN HÌNH: Cho danh sách vào khung có thể cuộn (Scroll Container)
+                with st.container(height=350, border=True):
+                    for item_db in ds_db:
+                        # Rút gọn nhãn nút bấm
+                        ten_hien_thi = item_db['ten_thu_tuc']
+                        if len(ten_hien_thi) > 75:
+                            ten_hien_thi = ten_hien_thi[:72] + "..."
                         
-                        col1, col2 = st.columns(2)
-                        if col1.button("✅ Phê duyệt (Hiển thị ngay)", key=f"duyet_{r['ma_thu_tuc']}", type="primary"):
-                            admin_duyet_hoac_tu_choi(r['ma_thu_tuc'], "da_duyet", u.get("ten_dang_nhap", "admin"))
-                            st.success("Đã phê duyệt.")
-                            st.rerun()
-                        if col2.button("❌ Từ chối", key=f"tu_choi_{r['ma_thu_tuc']}"):
-                            admin_duyet_hoac_tu_choi(r['ma_thu_tuc'], "tu_choi", u.get("ten_dang_nhap", "admin"))
-                            st.warning("Đã từ chối.")
+                        # Hiện mã thủ tục khi di chuột vào (help text) thay vì in thẳng ra màn hình gây dài
+                        if st.button(f"📌 {ten_hien_thi}", help=f"Mã: {item_db['ma_thu_tuc']}", key=f"btn_db_{item_db['ma_thu_tuc']}", use_container_width=True):
+                            xu_ly_cau_noi(item_db['ten_thu_tuc'])
                             st.rerun()
             else:
-                st.info("Hiện không có bài viết nào cần duyệt.")
+                st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
+            st.divider()
 
-            if ds_da_duyet:
-                st.markdown("---")
-                st.markdown("### Danh sách bài ĐÃ duyệt (Có thể gỡ xuống)")
-                for r in ds_da_duyet[:10]:
-                    with st.expander(f"✅ {r['ma_thu_tuc']} - {r['ten_thu_tuc']}"):
-                        if st.button("Hủy phê duyệt (Gỡ khỏi Web)", key=f"huy_{r['ma_thu_tuc']}"):
-                            admin_duyet_hoac_tu_choi(r['ma_thu_tuc'], "tu_choi", u.get("ten_dang_nhap", "admin"))
-                            st.rerun()
+        nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
+                                 format_func=lambda k: DANH_MUC_THU_TUC[k])
+        ds = kb.theo_nhom(nhom_chon)
+        if not ds:
+            st.warning("Chưa có dữ liệu cho nhóm này.")
         else:
-            st.error("Chưa kết nối được Database.")
+            tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
+            if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
+                xu_ly_cau_noi(tt_chon.ten)
+                st.rerun()
+
+st.markdown('</div>', unsafe_allow_html=True)
 
 
-# =========================================================== 4 · TỪ VỰNG & GIỌNG ĐỌC
-if "tu_vung_giong" in tabs:
-    with tabs["tu_vung_giong"]:
-        st.subheader("Quản lý từ vựng và cấu hình giọng đọc")
-        st.markdown("Kiểm tra từ điển dịch thuật và trạng thái các mô hình âm thanh.")
-        if GLOSSARY_FILE.exists():
-            st.text(f"Đường dẫn từ điển: {GLOSSARY_FILE}")
-            try:
-                glossary_data = json.loads(GLOSSARY_FILE.read_text(encoding="utf-8"))
-                st.write(f"Số lượng thuật ngữ dịch: **{len(glossary_data)}**")
-            except Exception:
-                st.info("Định dạng từ điển trống hoặc lỗi.")
-        else:
-            st.info("Chưa có tệp từ điển tùy chỉnh.")
-
-        st.markdown("### Trạng thái Mô hình LLM & Giọng đọc")
-        try:
-            current_model = model_dang_dung()
-            st.info(f"Model Gemini đang sử dụng: **{current_model}**")
-        except Exception:
-            st.info("Không lấy được tên model hiện tại.")
-
-
-# =========================================================== 5 · BỘ NHỚ TẠM
-if "bo_nho_tam" in tabs:
-    with tabs["bo_nho_tam"]:
-        st.subheader("Dọn dẹp bộ nhớ tạm & Cache")
-        st.caption("Xóa các tệp cache phân tích, cache âm thanh tạm thời để giải phóng dung lượng VPS.")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("🧹 Xóa cache âm thanh (CACHE_AUDIO)"):
-                if CACHE_AUDIO.exists():
-                    shutil.rmtree(CACHE_AUDIO)
-                    CACHE_AUDIO.mkdir(parents=True, exist_ok=True)
-                    st.success("Đã xóa cache âm thanh thành công!")
-                else:
-                    st.info("Thư mục cache âm thanh trống.")
-        with c2:
-            if st.button("🧹 Xóa cache rút gọn (CACHE_SIMPLIFIED)"):
-                if CACHE_SIMPLIFIED.exists():
-                    shutil.rmtree(CACHE_SIMPLIFIED)
-                    CACHE_SIMPLIFIED.mkdir(parents=True, exist_ok=True)
-                    st.success("Đã xóa cache rút gọn thành công!")
-                else:
-                    st.info("Thư mục cache rút gọn trống.")
+# ==========================================================================
+# 5. THANH BÊN — chỉ dành cho cán bộ
+# ==========================================================================
+if auth.nguoi_dang_nhap():
+    with st.sidebar:
+        st.divider()
+        st.markdown("### Trạng thái hệ thống")
+        tk = kb.thong_ke()
+        st.metric("Thủ tục trong kho", tk["so_thu_tuc"])
+        st.caption(f"Nhóm có dữ liệu: {tk['so_nhom']}  ·  "
+                   f"{tk['tong_ky_tu']:,} ký tự văn bản gốc")
+        st.caption(f"Giọng Mông: `{TTS_HMONG_PROVIDER}`  ·  "
+                   f"Ngưỡng tin cậy: {NGUONG_TU_TIN:.0%}")
+        if tk["thieu_pdf"]:
+            st.error(f"Thiếu PDF: {', '.join(tk['thieu_pdf'][:5])}")
+        if ss.danh_sach_yeu_cau:
+            st.markdown("### Phiếu chờ cán bộ")
+            for p in reversed(ss.danh_sach_yeu_cau[-5:]):
+                st.caption(f"{p['thoi_gian']} — {p['van_de']}")
