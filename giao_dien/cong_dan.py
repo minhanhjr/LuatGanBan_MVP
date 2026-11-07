@@ -22,6 +22,9 @@ from pathlib import Path
 import streamlit as st
 from streamlit.components.v1 import html as _html
 
+# Chống trình duyệt tự dịch tiếng Việt sang tiếng Anh làm mất chữ
+st.markdown('<html lang="vi"></html>', unsafe_allow_html=True)
+
 from core import auth, kb
 from core.config import (DANH_MUC_THU_TUC, HMONG_ORTHOGRAPHY,
                          NGUONG_TU_TIN, TTS_HMONG_PROVIDER)
@@ -72,7 +75,7 @@ if not kb.load_kb():
 
 
 # ==========================================================================
-# ĐIỀU HƯỚNG TRANG GIỚI THIỆU (Nút bấm tinh tế, gọn nhẹ)
+# ĐIỀU HƯỚNG TRANG GIỚI THIỆU
 # ==========================================================================
 col_sp1, col_btn_gt, col_sp2 = st.columns([3, 1.4, 3])
 with col_btn_gt:
@@ -83,12 +86,12 @@ st.markdown("---")
 
 
 # ==========================================================================
-# HÀM CÓ CACHE (giảm độ trễ: lần 2 trở đi gần như tức thì)
+# HÀM CÓ CACHE
 # ==========================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def _dinh_tuyen(cau_noi: str) -> dict:
     r = dinh_tuyen(cau_noi)
-    r["_key"] = r["thu_tuc"].key if r["thu_tuc"] else ""    # ThuTuc không hash được
+    r["_key"] = r["thu_tuc"].key if r["thu_tuc"] else ""
     r.pop("thu_tuc", None)
     return r
 
@@ -103,7 +106,7 @@ def _dich_mong(text: str) -> dict:
     return dich_sang_mong(text)
 
 
-PHIEN_BAN_DICH_TAY = 2          # tăng số này khi đổi cách dịch -> bỏ cache cũ
+PHIEN_BAN_DICH_TAY = 2
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
@@ -113,7 +116,6 @@ def _dich_tay(text: str, phien_ban: int = PHIEN_BAN_DICH_TAY) -> str:
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def _tts_vi(text: str) -> str:
-    """Đọc một đoạn chữ bằng giọng Việt. Trả về đường dẫn file, "" nếu hỏng."""
     try:
         p = tts_tieng_viet(text)
         return str(p) if p else ""
@@ -123,7 +125,6 @@ def _tts_vi(text: str) -> str:
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def _audio_b64(duong_dan: str) -> tuple[str, str]:
-    """Đọc file âm thanh thành base64 để nhúng thẳng vào nút loa."""
     p = Path(duong_dan)
     if not p.exists():
         return "", ""
@@ -140,7 +141,6 @@ _SVG_DUNG = ('<svg width="34" height="34" viewBox="0 0 24 24" fill="white">'
 
 
 def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
-    """Nút loa tròn, màu xanh dương, bấm một cái là nghe."""
     if not duong_dan:
         return False
     b64, mime = _audio_b64(str(duong_dan))
@@ -206,7 +206,6 @@ def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
 
 
 def loa(text: str, *, nhan: str = "Nghe", tu_phat: bool = False) -> None:
-    """Đọc một đoạn chữ bằng giọng Việt rồi hiện nút loa."""
     if not (text or "").strip():
         return
     p = _tts_vi(text)
@@ -577,7 +576,7 @@ if ss.ket_qua:
 
 
 # ==========================================================================
-# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (Tích hợp tra cứu CSDL)
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (THU GỌN NÚT BẤM DANH SÁCH)
 # ==========================================================================
 st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
@@ -599,15 +598,18 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
     with t_chon:
         st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
         
-        # Tra cứu thủ tục công khai đã được phê duyệt trực tiếp từ PostgreSQL
         if lay_danh_sach_thu_tuc_cho_nguoi_dan:
             tu_khoa_db = st.text_input("🔍 Nhập tên thủ tục tra cứu từ CSDL:", "", key="tim_db_cong_dan")
-            # Hiển thị mặc định danh sách khi mới mở hoặc khi gõ từ khóa
             ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
             if ds_db:
                 st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
                 for item_db in ds_db:
-                    if st.button(f"📌 {item_db['ten_thu_tuc']} (Mã: {item_db['ma_thu_tuc']})", key=f"btn_db_{item_db['ma_thu_tuc']}"):
+                    # Rút gọn nhãn nút bấm: Chỉ hiện tên, mã đưa vào caption bên dưới hoặc gọn trong ngoặc ngắn
+                    ten_hien_thi = item_db['ten_thu_tuc']
+                    if len(ten_hien_thi) > 65:
+                        ten_hien_thi = ten_hien_thi[:62] + "..."
+                    
+                    if st.button(f"📌 {ten_hien_thi} (Mã: {item_db['ma_thu_tuc']})", key=f"btn_db_{item_db['ma_thu_tuc']}"):
                         xu_ly_cau_noi(item_db['ten_thu_tuc'])
                         st.rerun()
             else:
