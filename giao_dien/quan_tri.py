@@ -153,8 +153,6 @@ if "cap_nhat_du_lieu" in tabs:
     with tabs["cap_nhat_du_lieu"]:
         st.subheader("Cập nhật dữ liệu từ file Excel / PDF")
         st.caption("Đặt các file dịch vụ công mới vào thư mục `file_dichvucong/` trên VPS rồi bấm nút bên dưới.")
-        if st.markdown(f"Thư mục hiện tại: `{EXCEL_DIR}`"):
-            pass
         if EXCEL_DIR.exists():
             files = list(EXCEL_DIR.glob("*.xlsx")) + list(EXCEL_DIR.glob("*.pdf"))
             st.write(f"Tìm thấy **{len(files)}** tệp nguồn trong `file_dichvucong/`.")
