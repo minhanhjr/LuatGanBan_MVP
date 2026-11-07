@@ -22,7 +22,7 @@ from pathlib import Path
 import streamlit as st
 from streamlit.components.v1 import html as _html
 
-# Chống trình duyệt tự dịch tiếng Việt sang tiếng Anh làm mất chữ
+# BẢO VỆ GIAO DIỆN: Chống Google Chrome tự động dịch làm vỡ chữ
 st.markdown('<html lang="vi"></html>', unsafe_allow_html=True)
 
 from core import auth, kb
@@ -68,9 +68,7 @@ ss.setdefault("cau_noi", "")
 ss.setdefault("audio_da_xu_ly", "")
 
 if not kb.load_kb():
-    st.error(
-        "**Kho dữ liệu trống.** Hãy kiểm tra lại kết nối Cơ sở dữ liệu PostgreSQL."
-    )
+    st.error("**Kho dữ liệu trống.** Hãy kiểm tra lại kết nối Cơ sở dữ liệu PostgreSQL.")
     st.stop()
 
 
@@ -146,7 +144,6 @@ def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
     b64, mime = _audio_b64(str(duong_dan))
     if not b64:
         return False
-
     tu_phat_js = ("a.play().then(function(){}).catch(function(){"
                   "tt.textContent='Bấm vào loa để nghe';});") if tu_phat else ""
     _html(f"""
@@ -213,9 +210,6 @@ def loa(text: str, *, nhan: str = "Nghe", tu_phat: bool = False) -> None:
         nut_loa(p, nhan=nhan, tu_phat=tu_phat)
 
 
-# ==========================================================================
-# PIPELINE
-# ==========================================================================
 def _thong_diep_loi(e: Exception) -> str:
     if isinstance(e, LoiQuota):
         return ("Máy đang bận, bà con chờ vài phút rồi hỏi lại nhé. "
@@ -234,7 +228,6 @@ def _them_tieng_mong(box, kq: dict, tt, *, la_tieng_chon: bool) -> None:
     try:
         kq["mong"] = _dich_mong(kq["kich_ban"])
         kq["thoi_gian"]["dich_mong"] = time.perf_counter() - t
-
         t = time.perf_counter()
         audio, tang = phat_tieng_mong(kq["mong"]["rpa"], key=tt.key)
         kq["thoi_gian"]["tts_mong"] = time.perf_counter() - t
@@ -254,9 +247,7 @@ def _them_tieng_tay(box, kq: dict, tt=None, *, la_tieng_chon: bool) -> None:
         kq["thoi_gian"]["dich_tay"] = time.perf_counter() - t
         try:
             kq["model_dich_tay"] = chon_model("quality")
-        except Exception:
-            pass
-
+        except Exception: pass
         t = time.perf_counter()
         audio, tang = phat_tieng_tay(kq["tay"])
         kq["thoi_gian"]["tts_tay"] = time.perf_counter() - t
@@ -268,10 +259,7 @@ def _them_tieng_tay(box, kq: dict, tt=None, *, la_tieng_chon: bool) -> None:
         kq["_loi_tay"] = str(e)
 
 
-_XU_LY_TIENG = {
-    "mong": _them_tieng_mong,
-    "tay": _them_tieng_tay,
-}
+_XU_LY_TIENG = {"mong": _them_tieng_mong, "tay": _them_tieng_tay}
 
 
 def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
@@ -576,7 +564,7 @@ if ss.ket_qua:
 
 
 # ==========================================================================
-# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (THU GỌN NÚT BẤM DANH SÁCH)
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (Tích hợp tra cứu CSDL GỌN GÀNG)
 # ==========================================================================
 st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
@@ -601,17 +589,22 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
         if lay_danh_sach_thu_tuc_cho_nguoi_dan:
             tu_khoa_db = st.text_input("🔍 Nhập tên thủ tục tra cứu từ CSDL:", "", key="tim_db_cong_dan")
             ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
+            
             if ds_db:
                 st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
-                for item_db in ds_db:
-                    # Rút gọn nhãn nút bấm: Chỉ hiện tên, mã đưa vào caption bên dưới hoặc gọn trong ngoặc ngắn
-                    ten_hien_thi = item_db['ten_thu_tuc']
-                    if len(ten_hien_thi) > 65:
-                        ten_hien_thi = ten_hien_thi[:62] + "..."
-                    
-                    if st.button(f"📌 {ten_hien_thi} (Mã: {item_db['ma_thu_tuc']})", key=f"btn_db_{item_db['ma_thu_tuc']}"):
-                        xu_ly_cau_noi(item_db['ten_thu_tuc'])
-                        st.rerun()
+                
+                # SỬA LỖI TRÀN MÀN HÌNH: Cho danh sách vào khung có thể cuộn (Scroll Container)
+                with st.container(height=350, border=True):
+                    for item_db in ds_db:
+                        # Rút gọn nhãn nút bấm
+                        ten_hien_thi = item_db['ten_thu_tuc']
+                        if len(ten_hien_thi) > 75:
+                            ten_hien_thi = ten_hien_thi[:72] + "..."
+                        
+                        # Hiện mã thủ tục khi di chuột vào (help text) thay vì in thẳng ra màn hình gây dài
+                        if st.button(f"📌 {ten_hien_thi}", help=f"Mã: {item_db['ma_thu_tuc']}", key=f"btn_db_{item_db['ma_thu_tuc']}", use_container_width=True):
+                            xu_ly_cau_noi(item_db['ten_thu_tuc'])
+                            st.rerun()
             else:
                 st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
             st.divider()
