@@ -47,11 +47,11 @@ try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             if tu_khoa.strip():
                 cur.execute(
-                    "SELECT * FROM thu_tuc_hanh_chinh WHERE (trang_thai = 'da_duyet' OR an = FALSE) AND (ten_thu_tuc ILIKE %s OR ma_thu_tuc ILIKE %s)",
+                    "SELECT * FROM thu_tuc_hanh_chinh WHERE (trang_thai = 'da_duyet' OR an = FALSE) AND (ten_thu_tuc ILIKE %s OR ma_thu_tuc ILIKE %s) ORDER BY id ASC",
                     (f"%{tu_khoa.strip()}%", f"%{tu_khoa.strip()}%")
                 )
             else:
-                cur.execute("SELECT * FROM thu_tuc_hanh_chinh WHERE trang_thai = 'da_duyet' OR an = FALSE")
+                cur.execute("SELECT * FROM thu_tuc_hanh_chinh WHERE trang_thai = 'da_duyet' OR an = FALSE ORDER BY id ASC")
             rows = cur.fetchall()
             cur.close()
             conn.close()
@@ -376,7 +376,7 @@ ss.ma_ngon_ngu = ma_ngon_ngu
 ss.cac_ngon_ngu = cac_ngon_ngu
 
 # ==========================================================================
-# 2. MỘT NÚT DUY NHẤT
+# 2. MỘT NÚT DUY NHẤT (MICROPHONE VOICING)
 # ==========================================================================
 st.markdown(
     '<div style="text-align:center;font-size:26px;font-weight:bold;'
@@ -576,7 +576,7 @@ if ss.ket_qua:
 
 
 # ==========================================================================
-# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (THU GỌN NÚT BẤM DANH SÁCH)
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (TINH CHỈNH GỌN GÀNG VÀ AN TOÀN)
 # ==========================================================================
 st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
@@ -598,34 +598,35 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
     with t_chon:
         st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
         
+        # Tra cứu thủ tục trực tiếp từ CSDL bằng Dropdown Selectbox gọn gàng
         if lay_danh_sach_thu_tuc_cho_nguoi_dan:
-            tu_khoa_db = st.text_input("🔍 Nhập tên thủ tục tra cứu từ CSDL:", "", key="tim_db_cong_dan")
-            ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
+            ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan()
             if ds_db:
-                st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
-                for item_db in ds_db:
-                    # Rút gọn nhãn nút bấm: Chỉ hiện tên, mã đưa vào caption bên dưới hoặc gọn trong ngoặc ngắn
-                    ten_hien_thi = item_db['ten_thu_tuc']
-                    if len(ten_hien_thi) > 65:
-                        ten_hien_thi = ten_hien_thi[:62] + "..."
-                    
-                    if st.button(f"📌 {ten_hien_thi} (Mã: {item_db['ma_thu_tuc']})", key=f"btn_db_{item_db['ma_thu_tuc']}"):
-                        xu_ly_cau_noi(item_db['ten_thu_tuc'])
-                        st.rerun()
+                # Tạo từ điển tên thủ tục -> tên đầy đủ để tìm kiếm
+                dict_db = {f"{item['ten_thu_tuc']} (Mã: {item['ma_thu_tuc']})": item['ten_thu_tuc'] for item in ds_db}
+                tt_duoc_chon = st.selectbox(
+                    "🔍 Tra cứu và chọn thủ tục từ CSDL đã phê duyệt:",
+                    options=list(dict_db.keys()),
+                    key="sb_db_cong_dan"
+                )
+                if st.button("📌 Xem hướng dẫn thủ tục đã chọn", type="primary", use_container_width=True):
+                    ten_goc = dict_db[tt_duoc_chon]
+                    xu_ly_cau_noi(ten_goc)
+                    st.rerun()
             else:
-                st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
-            st.divider()
-
-        nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
-                                 format_func=lambda k: DANH_MUC_THU_TUC[k])
-        ds = kb.theo_nhom(nhom_chon)
-        if not ds:
-            st.warning("Chưa có dữ liệu cho nhóm này.")
+                st.info("Chưa có thủ tục nào được phê duyệt trong CSDL.")
         else:
-            tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
-            if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
-                xu_ly_cau_noi(tt_chon.ten)
-                st.rerun()
+            # Dự phòng tra cứu tĩnh nếu CSDL ngắt kết nối
+            nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
+                                     format_func=lambda k: DANH_MUC_THU_TUC[k])
+            ds = kb.theo_nhom(nhom_chon)
+            if not ds:
+                st.warning("Chưa có dữ liệu cho nhóm này.")
+            else:
+                tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
+                if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
+                    xu_ly_cau_noi(tt_chon.ten)
+                    st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
 
