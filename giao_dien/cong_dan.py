@@ -1,16 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Cổng người dân — hỏi đáp thủ tục bằng giọng nói.
-
-Nguyên tắc giao diện (voice-first):
-  * MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự chạy hết chuỗi,
-    không có nút "xử lý" thứ hai.
-  * Không hiện con số kỹ thuật. Bà con không cần biết "độ tin cậy 10%";
-    họ chỉ cần biết máy nghe rõ hay chưa. Mọi chỉ số dời vào mục dành cho
-    cán bộ ở cuối trang.
-  * Chữ nào cũng có loa. Người không đọc được vẫn phải dùng được trọn vẹn,
-    nên mọi nội dung trả lời đều kèm trình phát tiếng.
-  * Gõ chữ là đường phụ, đặt cuối trang, cỡ nhỏ.
-"""
+"""Cổng người dân — hỏi đáp thủ tục bằng giọng nói & tra cứu PostgreSQL dạng Dropdown."""
 from __future__ import annotations
 
 import base64
@@ -22,7 +11,7 @@ from pathlib import Path
 import streamlit as st
 from streamlit.components.v1 import html as _html
 
-# Chống trình duyệt tự dịch tiếng Việt sang tiếng Anh làm mất chữ
+# BẢO VỆ GIAO DIỆN: Chống Google Chrome tự động dịch làm vỡ chữ
 st.markdown('<html lang="vi"></html>', unsafe_allow_html=True)
 
 from core import auth, kb
@@ -86,7 +75,7 @@ st.markdown("---")
 
 
 # ==========================================================================
-# HÀM CÓ CACHE
+# HÀM CÓ CACHE & XỬ LÝ ÂM THANH
 # ==========================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def _dinh_tuyen(cau_noi: str) -> dict:
@@ -376,7 +365,7 @@ ss.ma_ngon_ngu = ma_ngon_ngu
 ss.cac_ngon_ngu = cac_ngon_ngu
 
 # ==========================================================================
-# 2. MỘT NÚT DUY NHẤT (MICROPHONE VOICING)
+# 2. MỘT NÚT DUY NHẤT (MICROPHONE)
 # ==========================================================================
 st.markdown(
     '<div style="text-align:center;font-size:26px;font-weight:bold;'
@@ -576,13 +565,52 @@ if ss.ket_qua:
 
 
 # ==========================================================================
-# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (TINH CHỈNH GỌN GÀNG VÀ AN TOÀN)
+# 4. ĐƯỜNG PHỤ — CHUYỂN TOÀN BỘ DANH SÁCH THÀNH HỘP CHỌN THẢ XUỐNG (DROPLIST)
 # ==========================================================================
 st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
 
 with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh sách"):
-    t_go, t_chon = st.tabs(["Gõ câu hỏi", "Chọn thủ tục"])
+    t_chon, t_go = st.tabs(["Chọn thủ tục từ danh sách", "Gõ câu hỏi"])
+
+    with t_chon:
+        st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
+        
+        # Tra cứu thủ tục trực tiếp từ CSDL bằng Dropdown Selectbox gọn gàng
+        if lay_danh_sach_thu_tuc_cho_nguoi_dan:
+            tu_khoa_db = st.text_input("🔍 Gõ từ khóa để lọc danh sách (nếu cần):", "", key="tim_db_cong_dan")
+            ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
+            
+            if ds_db:
+                st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
+                
+                # Biến 27 nút bấm dài tràn màn hình thành 1 HỘP CHỌN DUY NHẤT
+                dict_db = {f"📌 {item['ten_thu_tuc']} (Mã: {item['ma_thu_tuc']})": item['ten_thu_tuc'] for item in ds_db}
+                
+                thu_tuc_duoc_chon = st.selectbox(
+                    "👇 Bấm vào ô này để chọn thủ tục cần làm:",
+                    options=list(dict_db.keys()),
+                    key="sb_db_cong_dan"
+                )
+                
+                if st.button("🚀 Xem hướng dẫn cho thủ tục này", type="primary", use_container_width=True):
+                    ten_goc = dict_db[thu_tuc_duoc_chon]
+                    xu_ly_cau_noi(ten_goc)
+                    st.rerun()
+            else:
+                st.info("Chưa có thủ tục phù hợp nào được phê duyệt trong CSDL.")
+        else:
+            # Dự phòng nếu mất kết nối CSDL
+            nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
+                                     format_func=lambda k: DANH_MUC_THU_TUC[k])
+            ds = kb.theo_nhom(nhom_chon)
+            if not ds:
+                st.warning("Chưa có dữ liệu cho nhóm này.")
+            else:
+                tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
+                if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
+                    xu_ly_cau_noi(tt_chon.ten)
+                    st.rerun()
 
     with t_go:
         with st.form("form_go", clear_on_submit=False):
@@ -594,39 +622,6 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
                                       use_container_width=True) and txt.strip():
                 xu_ly_cau_noi(txt.strip())
                 st.rerun()
-
-    with t_chon:
-        st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
-        
-        # Tra cứu thủ tục trực tiếp từ CSDL bằng Dropdown Selectbox gọn gàng
-        if lay_danh_sach_thu_tuc_cho_nguoi_dan:
-            ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan()
-            if ds_db:
-                # Tạo từ điển tên thủ tục -> tên đầy đủ để tìm kiếm
-                dict_db = {f"{item['ten_thu_tuc']} (Mã: {item['ma_thu_tuc']})": item['ten_thu_tuc'] for item in ds_db}
-                tt_duoc_chon = st.selectbox(
-                    "🔍 Tra cứu và chọn thủ tục từ CSDL đã phê duyệt:",
-                    options=list(dict_db.keys()),
-                    key="sb_db_cong_dan"
-                )
-                if st.button("📌 Xem hướng dẫn thủ tục đã chọn", type="primary", use_container_width=True):
-                    ten_goc = dict_db[tt_duoc_chon]
-                    xu_ly_cau_noi(ten_goc)
-                    st.rerun()
-            else:
-                st.info("Chưa có thủ tục nào được phê duyệt trong CSDL.")
-        else:
-            # Dự phòng tra cứu tĩnh nếu CSDL ngắt kết nối
-            nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
-                                     format_func=lambda k: DANH_MUC_THU_TUC[k])
-            ds = kb.theo_nhom(nhom_chon)
-            if not ds:
-                st.warning("Chưa có dữ liệu cho nhóm này.")
-            else:
-                tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
-                if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
-                    xu_ly_cau_noi(tt_chon.ten)
-                    st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
 
