@@ -37,6 +37,7 @@ except ImportError:
     get_db_connection = None
 
 EXCEL_DIR = ROOT / "file_dichvucong"
+EXCEL_DIR.mkdir(parents=True, exist_ok=True)
 
 u = auth.nguoi_dang_nhap()
 if not u:
@@ -151,25 +152,55 @@ if "kho_thu_tuc" in tabs:
 # =========================================================== 2 · CẬP NHẬT DỮ LIỆU
 if "cap_nhat_du_lieu" in tabs:
     with tabs["cap_nhat_du_lieu"]:
-        st.subheader("Cập nhật dữ liệu từ file Excel / PDF")
-        st.caption("Đặt các file dịch vụ công mới vào thư mục `file_dichvucong/` trên VPS rồi bấm nút bên dưới.")
-        if EXCEL_DIR.exists():
-            files = list(EXCEL_DIR.glob("*.xlsx")) + list(EXCEL_DIR.glob("*.pdf"))
-            st.write(f"Tìm thấy **{len(files)}** tệp nguồn trong `file_dichvucong/`.")
-            for f in files:
-                st.text(f" - {f.name} ({f.stat().st_size / 1024:.1f} KB)")
-        else:
-            st.warning("Thư mục `file_dichvucong/` chưa tồn tại.")
+        st.subheader("📥 Cập nhật dữ liệu từ file Excel / PDF")
+        st.caption("Tải tệp dịch vụ công mới lên hệ thống để thực hiện bóc tách tự động vào Cơ sở dữ liệu PostgreSQL.")
 
-        if st.button("🚀 Chạy script trích xuất dữ liệu (extract_tthc.py)", type="primary"):
-            with st.spinner("Đang trích xuất dữ liệu..."):
+        # Khối tải tệp trực tiếp từ trình duyệt
+        uploaded_files = st.file_uploader(
+            "📤 Chọn hoặc kéo thả tệp mới (Excel .xlsx hoặc PDF .pdf)",
+            type=["xlsx", "pdf"],
+            accept_multiple_files=True,
+            key="uploader_tthc"
+        )
+
+        if uploaded_files:
+            saved_count = 0
+            for uploaded_file in uploaded_files:
+                target_path = EXCEL_DIR / uploaded_file.name
+                with open(target_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                saved_count += 1
+            st.success(f"✅ Đã tải lên thành công {saved_count} tệp vào thư mục `file_dichvucong/`!")
+
+        st.divider()
+        st.markdown("### 📂 Danh sách tệp nguồn hiện có trên máy chủ")
+        
+        files = list(EXCEL_DIR.glob("*.xlsx")) + list(EXCEL_DIR.glob("*.pdf"))
+        if files:
+            st.write(f"Tìm thấy **{len(files)}** tệp tài liệu:")
+            for f in files:
+                col_f1, col_f2 = st.columns([4, 1])
+                col_f1.markdown(f"📄 **{f.name}** (`{f.stat().st_size / 1024:.1f} KB`)")
+                if col_f2.button("🗑️ Xóa tệp", key=f"del_{f.name}"):
+                    f.unlink()
+                    st.toast(f"Đã xóa tệp {f.name}")
+                    st.rerun()
+        else:
+            st.info("Chưa có tệp tài liệu nào trong thư mục `file_dichvucong/`.")
+
+        st.divider()
+        st.markdown("### ⚙️ Bóc tách & Đồng bộ vào CSDL")
+        if st.button("🚀 Chạy bóc tách dữ liệu thủ tục (extract_tthc.py)", type="primary", use_container_width=True):
+            with st.spinner("Đang bóc tách và trích xuất dữ liệu thủ tục vào PostgreSQL..."):
                 try:
-                    res = subprocess.run([sys.executable, "tools/extract_tthc.py"], capture_output=True, text=True, timeout=120)
+                    res = subprocess.run([sys.executable, "tools/extract_tthc.py"], capture_output=True, text=True, timeout=180)
                     if res.returncode == 0:
-                        st.success("Trích xuất thành công!")
-                        st.code(res.stdout)
+                        st.success("🎉 Trích xuất và bóc tách dữ liệu thành công!")
+                        if res.stdout.strip():
+                            st.code(res.stdout)
+                        st.cache_data.clear()
                     else:
-                        st.error("Có lỗi xảy ra khi trích xuất:")
+                        st.error("Có lỗi xảy ra trong quá trình bóc tách:")
                         st.code(res.stderr)
                 except Exception as ex:
                     st.error(f"Lỗi thực thi: {ex}")
