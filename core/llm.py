@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -41,11 +42,21 @@ def get_client(api_key: str | None = None) -> genai.Client:
     global _client
     if _client is None:
         if api_key is None:
-            try:
-                import streamlit as st
-                api_key = st.secrets["GEMINI_API_KEY"]
-            except Exception as e:  # pragma: no cover
-                raise RuntimeError("Thiếu GEMINI_API_KEY") from e
+            # 1. Ưu tiên lấy từ biến môi trường OS / Docker (.env)
+            api_key = os.getenv("GEMINI_API_KEY")
+
+            # 2. Thử đọc an toàn từ Streamlit secrets nếu không tìm thấy trong env
+            if not api_key:
+                try:
+                    import streamlit as st
+                    if hasattr(st, "secrets") and "GEMINI_API_KEY" in st.secrets:
+                        api_key = st.secrets["GEMINI_API_KEY"]
+                except Exception:
+                    api_key = None
+
+        if not api_key:
+            raise RuntimeError("Thiếu GEMINI_API_KEY! Vui lòng cấu hình file .env hoặc secrets.toml.")
+
         _client = genai.Client(api_key=api_key)
     return _client
 
