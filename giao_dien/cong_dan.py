@@ -62,9 +62,7 @@ ss.setdefault("cau_noi", "")
 ss.setdefault("audio_da_xu_ly", "")
 
 if not kb.load_kb():
-    st.error(
-        "**Kho dữ liệu trống.** Hãy kiểm tra lại kết nối Cơ sở dữ liệu PostgreSQL."
-    )
+    st.error("**Kho dữ liệu trống.** Hãy kiểm tra lại kết nối Cơ sở dữ liệu PostgreSQL.")
     st.stop()
 
 
@@ -73,14 +71,14 @@ if not kb.load_kb():
 # ==========================================================================
 col_sp1, col_btn_gt, col_sp2 = st.columns([3, 1.4, 3])
 with col_btn_gt:
-    if st.button("📖 Giới thiệu dự án", use_container_width=True, help="Xem thông tin chi tiết và ý nghĩa dự án"):
+    if st.button("📖 Giới thiệu dự án", use_container_width=True):
         st.switch_page("giao_dien/gioi_thieu.py")
 
 st.markdown("---")
 
 
 # ==========================================================================
-# HÀM CÓ CACHE
+# HÀM CÓ CACHE & NÚT LOA VẬN HÀNH BẰNG ST.HTML
 # ==========================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def _dinh_tuyen(cau_noi: str) -> dict:
@@ -117,19 +115,32 @@ def _tts_vi(text: str) -> str:
         return ""
 
 
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _audio_b64(duong_dan: str) -> tuple[str, str]:
+    p = Path(duong_dan)
+    if not p.exists():
+        return "", ""
+    mime = "audio/mpeg" if p.suffix.lower() == ".mp3" else "audio/wav"
+    return base64.b64encode(p.read_bytes()).decode(), mime
+
+
 def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
     if not duong_dan:
         return False
-    p = Path(duong_dan)
-    if not p.exists():
+    b64, mime = _audio_b64(str(duong_dan))
+    if not b64:
         return False
-    mime = "audio/mpeg" if p.suffix.lower() == ".mp3" else "audio/wav"
-    try:
-        st.write(f"🔊 **{nhan}**")
-        st.audio(p.read_bytes(), format=mime, autoplay=tu_phat)
-        return True
-    except Exception:
-        return False
+
+    tu_phat_attr = "autoplay" if tu_phat else ""
+    st.html(f"""
+    <div style="margin: 10px 0; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; border-left: 4px solid #0B4F9E;">
+        <div style="font-weight: bold; color: #0B4F9E; font-size: 16px; margin-bottom: 6px;">🔊 {nhan}</div>
+        <audio controls {tu_phat_attr} style="width: 100%; height: 40px; border-radius: 8px;">
+            <source src="data:{mime};base64,{b64}" type="{mime}">
+        </audio>
+    </div>
+    """)
+    return True
 
 
 def loa(text: str, *, nhan: str = "Nghe", tu_phat: bool = False) -> None:
@@ -271,14 +282,14 @@ _DS_TIENG = NN.dang_dung()
 _MA_THEO_NHAN = {n.nhan: n.ma for n in _DS_TIENG}
 _MAC_DINH = [n.nhan for n in _DS_TIENG if n.ma in NN.MAC_DINH] or [_DS_TIENG[0].nhan]
 
-st.markdown("""<style>
+st.html("""<style>
   .st-key-lgb-chon-tieng { max-width: 560px; margin: 0 auto; }
   .st-key-lgb-chon-tieng label p { font-size: 18px !important; font-weight: bold !important;
                                    color: #003366 !important; text-align: center; }
   .st-key-lgb-chon-tieng [data-baseweb="select"] > div { min-height: 52px; font-size: 18px; }
   .st-key-lgb-chon-tieng [data-baseweb="tag"] { font-size: 17px !important; height: auto !important;
                                                padding: 6px 10px !important; }
-</style>""", unsafe_allow_html=True)
+</style>""")
 
 try:
     _khung_chon = st.container(key="lgb-chon-tieng")
@@ -306,11 +317,7 @@ ss.cac_ngon_ngu = cac_ngon_ngu
 # ==========================================================================
 # 2. MỘT NÚT DUY NHẤT
 # ==========================================================================
-st.markdown(
-    '<div style="text-align:center;font-size:26px;font-weight:bold;'
-    'color:#003366;margin:10px 0 2px 0;">Bấm vào đây để nói</div>',
-    unsafe_allow_html=True,
-)
+st.html('<div style="text-align:center;font-size:26px;font-weight:bold;color:#003366;margin:10px 0 2px 0;">Bấm vào đây để nói</div>')
 
 audio_in = st.audio_input("Bấm micro để nói", label_visibility="collapsed")
 
@@ -320,12 +327,10 @@ if audio_in is not None:
     if van_tay != ss.audio_da_xu_ly and len(raw) > 50:
         ss.audio_da_xu_ly = van_tay
         with st.spinner("Đang nghe bà con nói…"):
-            van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong,
-                                   ngon_ngu=ma_ngon_ngu)
+            van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong, ngon_ngu=ma_ngon_ngu)
         if not van_ban:
             st.error("Máy chưa nghe rõ, bà con bấm nói lại nhé.")
-            loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.",
-                nhan="Nghe lại lời nhắc", tu_phat=True)
+            loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.", nhan="Nghe lại lời nhắc", tu_phat=True)
         else:
             if ma_ngon_ngu in ("mong", "tay"):
                 dong_vi = [l for l in van_ban.splitlines() if l.startswith("VI:")]
@@ -374,12 +379,7 @@ def hien_ket_qua(kq: dict) -> None:
     if tuyen["can_can_bo"] or tt is None:
         cau_hoi = (tuyen.get("cau_hoi_lam_ro")
                    or "Bà con muốn hỏi về việc gì ạ? Bà con nói rõ hơn giúp máy nhé.")
-        st.markdown(
-            f'<div style="font-size:22px;line-height:1.6;padding:14px 16px;'
-            f'background:#FFF8E1;border-left:5px solid #F0A500;border-radius:8px;">'
-            f'❓ {cau_hoi}</div>',
-            unsafe_allow_html=True,
-        )
+        st.html(f'<div style="font-size:22px;line-height:1.6;padding:14px 16px;background:#FFF8E1;border-left:5px solid #F0A500;border-radius:8px;">❓ {cau_hoi}</div>')
         loa(cau_hoi, nhan="Nghe câu hỏi", tu_phat=True)
         st.caption("Bà con bấm micro ở trên để nói lại, hoặc bấm nút dưới để gặp cán bộ.")
         nut_goi_can_bo(kq)
@@ -391,7 +391,6 @@ def hien_ket_qua(kq: dict) -> None:
         st.caption(f"✅ Nội dung đã được **{dg.get('_nguoi_duyet','cán bộ')}** duyệt.")
 
     with st.container(border=True):
-        st.markdown('<div class="the-tra-loi">', unsafe_allow_html=True)
         st.markdown(f"**{dg.get('tom_tat_1_cau','')}**")
         di = dg.get("di_dau", {})
         st.markdown(f"📍 **Đi đâu:** {di.get('noi_don_gian','—')}")
@@ -405,7 +404,6 @@ def hien_ket_qua(kq: dict) -> None:
         c1, c2 = st.columns(2)
         c1.markdown(f"⏱️ **Chờ:** {dg.get('bao_lau','—')}")
         c2.markdown(f"💰 **Tiền:** {dg.get('bao_nhieu_tien','—')}")
-        st.markdown("</div>", unsafe_allow_html=True)
 
     ma_chon = kq.get("ma_ngon_ngu") or ("mong" if kq.get("la_tieng_mong", True) else "viet")
     cac_ma = list(kq.get("cac_ngon_ngu") or [ma_chon])
@@ -426,8 +424,7 @@ def hien_ket_qua(kq: dict) -> None:
         if ma != NN.MA_TIENG_VIET and not duong_dan:
             continue
         ten = nn.ten if nn else ma
-        cac_loa.append((ma, duong_dan, f"Nghe bằng {ten[:1].lower()}{ten[1:]}",
-                        _ghi_chu(ma)))
+        cac_loa.append((ma, duong_dan, f"Nghe bằng {ten[:1].lower()}{ten[1:]}", _ghi_chu(ma)))
 
     co_tieng_chon = any(ma == ma_chon for ma, *_ in cac_loa)
     tieng_tu_phat = ma_chon if co_tieng_chon else "viet"
@@ -447,8 +444,7 @@ def hien_ket_qua(kq: dict) -> None:
 
     if kq.get("mong"):
         with st.expander("📖 Xem chữ tiếng Mông"):
-            nhan_ortho = ("chữ Mông kiểu Việt Nam" if HMONG_ORTHOGRAPHY == "vn"
-                          else "chữ Mông RPA")
+            nhan_ortho = ("chữ Mông kiểu Việt Nam" if HMONG_ORTHOGRAPHY == "vn" else "chữ Mông RPA")
             st.caption(nhan_ortho)
             st.markdown(f"### {kq['mong']['hien_thi']}")
             st.text(f"RPA         : {kq['mong']['rpa']}")
@@ -466,9 +462,7 @@ def hien_ket_qua(kq: dict) -> None:
             if kq.get("_loi_mong"):
                 st.caption(f"Lỗi tiếng Mông: {kq['_loi_mong'][:200]}")
             if kq.get("tang_tts_tay"):
-                st.caption(f"Giọng Tày đã dùng: {NHAN_TANG.get(kq['tang_tts_tay'], '—')}"
-                           + (f" · dịch bằng {kq['model_dich_tay']}"
-                              if kq.get("model_dich_tay") else ""))
+                st.caption(f"Giọng Tày đã dùng: {NHAN_TANG.get(kq['tang_tts_tay'], '—')}" + (f" · dịch bằng {kq['model_dich_tay']}" if kq.get("model_dich_tay") else ""))
             if kq.get("_loi_tay"):
                 st.caption(f"Lỗi tiếng Tày: {kq['_loi_tay'][:200]}")
         if dg.get("chua_ro"):
@@ -484,16 +478,12 @@ def hien_ket_qua(kq: dict) -> None:
             for q in dg["trich_dan"]:
                 st.markdown(f"> {q}")
         if kbb:
-            st.markdown("**Giấy tờ không bắt buộc:** "
-                        + ", ".join(m["ten_don_gian"] for m in kbb))
+            st.markdown("**Giấy tờ không bắt buộc:** " + ", ".join(m["ten_don_gian"] for m in kbb))
         if tt.pdf_path.exists():
-            st.download_button("⬇️ Tải file hướng dẫn gốc (PDF)",
-                               tt.pdf_path.read_bytes(),
-                               file_name=f"{tt.ma_thu_tuc}.pdf", mime="application/pdf")
+            st.download_button("⬇️ Tải file hướng dẫn gốc (PDF)", tt.pdf_path.read_bytes(), file_name=f"{tt.ma_thu_tuc}.pdf", mime="application/pdf")
         if la_can_bo:
             tg = kq.get("thoi_gian", {})
-            st.caption("Thời gian xử lý: "
-                       + "  ·  ".join(f"{k} {v:.1f}s" for k, v in tg.items()))
+            st.caption("Thời gian xử lý: " + "  ·  ".join(f"{k} {v:.1f}s" for k, v in tg.items()))
 
     nut_goi_can_bo(kq)
 
@@ -504,7 +494,7 @@ if ss.ket_qua:
 
 
 # ==========================================================================
-# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (TRUY VẤN TRỰC TIẾP KHÔNG QUA AI)
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (TÍCH HỢP HỘP CHỌN DROPDOWN THẢ XUỐNG)
 # ==========================================================================
 st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
@@ -518,8 +508,7 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
                 "Bà con cần hỏi việc gì?",
                 placeholder="Ví dụ: Vợ tôi mới sinh con, tôi muốn làm giấy khai sinh",
                 height=90)
-            if st.form_submit_button("Gửi câu hỏi", type="primary",
-                                     use_container_width=True) and txt.strip():
+            if st.form_submit_button("Gửi câu hỏi", type="primary", use_container_width=True) and txt.strip():
                 xu_ly_cau_noi(txt.strip())
                 st.rerun()
 
@@ -565,8 +554,7 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
                 st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
             st.divider()
 
-        nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
-                                 format_func=lambda k: DANH_MUC_THU_TUC[k])
+        nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()), format_func=lambda k: DANH_MUC_THU_TUC[k])
         ds = kb.theo_nhom(nhom_chon)
         if not ds:
             st.warning("Chưa có dữ liệu cho nhóm này.")
@@ -597,10 +585,8 @@ if auth.nguoi_dang_nhap():
         st.markdown("### Trạng thái hệ thống")
         tk = kb.thong_ke()
         st.metric("Thủ tục trong kho", tk["so_thu_tuc"])
-        st.caption(f"Nhóm có dữ liệu: {tk['so_nhom']}  ·  "
-                   f"{tk['tong_ky_tu']:,} ký tự văn bản gốc")
-        st.caption(f"Giọng Mông: `{TTS_HMONG_PROVIDER}`  ·  "
-                   f"Ngưỡng tin cậy: {NGUONG_TU_TIN:.0%}")
+        st.caption(f"Nhóm có dữ liệu: {tk['so_nhom']}  ·  {tk['tong_ky_tu']:,} ký tự văn bản gốc")
+        st.caption(f"Giọng Mông: `{TTS_HMONG_PROVIDER}`  ·  Ngưỡng tin cậy: {NGUONG_TU_TIN:.0%}")
         if tk["thieu_pdf"]:
             st.error(f"Thiếu PDF: {', '.join(tk['thieu_pdf'][:5])}")
         if ss.danh_sach_yeu_cau:
