@@ -2,14 +2,9 @@
 """Cổng người dân — hỏi đáp thủ tục bằng giọng nói.
 
 Nguyên tắc giao diện (voice-first):
-  * MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự chạy hết chuỗi,
-    không có nút "xử lý" thứ hai.
-  * Không hiện con số kỹ thuật. Bà con không cần biết "độ tin cậy 10%";
-    họ chỉ cần biết máy nghe rõ hay chưa. Mọi chỉ số dời vào mục dành cho
-    cán bộ ở cuối trang.
-  * Chữ nào cũng có loa. Người không đọc được vẫn phải dùng được trọn vẹn,
-    nên mọi nội dung trả lời đều kèm trình phát tiếng.
-  * Gõ chữ là đường phụ, đặt cuối trang, cỡ nhỏ.
+  * MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự chạy hết chuỗi.
+  * Chữ nào cũng có loa. Mọi nội dung trả lời đều kèm trình phát tiếng.
+  * Gõ chữ / chọn thủ tục là đường phụ.
 """
 from __future__ import annotations
 
@@ -509,7 +504,7 @@ if ss.ket_qua:
 
 
 # ==========================================================================
-# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (TÍCH HỢP HỘP CHỌN DROPDOWN THẢ XUỐNG)
+# 4. ĐƯỜNG PHỤ — gõ chữ / chọn danh sách (TRUY VẤN TRỰC TIẾP KHÔNG QUA AI)
 # ==========================================================================
 st.markdown('<div class="lgb-phu">', unsafe_allow_html=True)
 st.markdown("<br>", unsafe_allow_html=True)
@@ -537,7 +532,7 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
             ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
             if ds_db:
                 st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
-                dict_db = {f"📌 {item['ten_thu_tuc']} (Mã: {item['ma_thu_tuc']})": item['ten_thu_tuc'] for item in ds_db}
+                dict_db = {f"📌 {item['ten_thu_tuc']} (Mã: {item['ma_thu_tuc']})": item for item in ds_db}
                 
                 thu_tuc_duoc_chon = st.selectbox(
                     "👇 Bấm vào ô này để chọn thủ tục cần làm:",
@@ -546,8 +541,25 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
                 )
                 
                 if st.button("🚀 Xem hướng dẫn thủ tục đã chọn", type="primary", use_container_width=True):
-                    ten_goc = dict_db[thu_tuc_duoc_chon]
-                    xu_ly_cau_noi(ten_goc)
+                    item_db = dict_db[thu_tuc_duoc_chon]
+                    ten_goc = item_db['ten_thu_tuc']
+                    ma_tt = item_db.get('ma_thu_tuc')
+                    
+                    # Tìm trực tiếp trong kho dữ liệu KB mà không cần qua AI định tuyến
+                    tt_found = (kb.theo_key(ma_tt) if ma_tt else None) or kb.theo_ten(ten_goc)
+                    if tt_found:
+                        dg = _don_gian_hoa(tt_found.key, CAU_HOI_MAC_DINH)
+                        ss.ket_qua = {
+                            "cau_noi": ten_goc,
+                            "thu_tuc": tt_found,
+                            "tuyen": {"can_can_bo": False, "ten_nhom": ten_goc, "tin_cay_thu_tuc": 1.0},
+                            "don_gian": dg,
+                            "kich_ban": thanh_van_ban_doc(dg),
+                            "audio_viet": _tts_vi(thanh_van_ban_doc(dg)),
+                            "thoi_gian": {"tong": 0.1}
+                        }
+                    else:
+                        xu_ly_cau_noi(ten_goc)
                     st.rerun()
             else:
                 st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
@@ -561,7 +573,16 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
         else:
             tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
             if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
-                xu_ly_cau_noi(tt_chon.ten)
+                dg = _don_gian_hoa(tt_chon.key, CAU_HOI_MAC_DINH)
+                ss.ket_qua = {
+                    "cau_noi": tt_chon.ten,
+                    "thu_tuc": tt_chon,
+                    "tuyen": {"can_can_bo": False, "ten_nhom": tt_chon.ten, "tin_cay_thu_tuc": 1.0},
+                    "don_gian": dg,
+                    "kich_ban": thanh_van_ban_doc(dg),
+                    "audio_viet": _tts_vi(thanh_van_ban_doc(dg)),
+                    "thoi_gian": {"tong": 0.1}
+                }
                 st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
