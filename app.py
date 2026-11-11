@@ -13,7 +13,6 @@ import base64
 from pathlib import Path
 
 import streamlit as st
-from streamlit.components.v1 import html as _html
 
 from core import auth
 
@@ -43,10 +42,7 @@ st.html("""
 
   /* Phông chữ chung */
   .stApp, p, h1, h2, h3, h4, h5, h6, label, button, input, .stMarkdown, .stText, .stTextArea { font-family: 'Times New Roman', Times, serif !important; }
-  /* Biểu tượng Material là chữ ghép (ligature): nếu bị ép sang Times New Roman sẽ hiện ra chữ "settings"... thay vì hình.
-     Quy tắc cho nút chuyển trang ở trên nhắm vào mọi thẻ span, nên phải khai báo lại với độ ưu tiên cao hơn.
-     LƯU Ý: không viết dấu "nhỏ hơn" liền chữ cái trong khối style này — bộ lọc HTML của Streamlit (DOMPurify)
-     sẽ xoá CẢ khối style, làm mất toàn bộ giao diện. */
+  /* Biểu tượng Material là chữ ghép (ligature): nếu bị ép sang Times New Roman sẽ hiện ra chữ "settings"... thay vì hình. */
   [data-testid="stPageLink"] [data-testid="stIconMaterial"] { font-family: 'Material Symbols Rounded','Material Icons',sans-serif !important; font-weight: normal !important; letter-spacing: normal !important; }
   [data-testid="stExpanderToggleIcon"], [data-testid="stIconMaterial"], [data-testid="stFileUploadDropzone"] span, .st-icon, .material-icons, .material-symbols-rounded { font-family: 'Material Symbols Rounded','Material Icons',sans-serif !important; }
 
@@ -93,9 +89,9 @@ st.html("""
 """)
 
 # ==========================================================================
-# DỌN TRANG BAO NGOÀI CỦA STREAMLIT CLOUD (Đã nén mã JS)
+# DỌN TRANG BAO NGOÀI CỦA STREAMLIT CLOUD (Chuyển sang st.html)
 # ==========================================================================
-_html("""<script>!function(){function e(){try{var e=window.top.document;if(e.getElementById("lgb-don-trang-bao"))return!0;var n=e.createElement("style");return n.id="lgb-don-trang-bao",n.textContent='[class*="viewerBadge"],[class*="profileContainer"],[data-testid="manage-app-button"],[class*="manageAppButton"]{display:none !important;}',e.head.appendChild(n),!0}catch(e){return!1}}if(!e()){var n=0,t=setInterval((function(){(e()||++n>20)&&clearInterval(t)}),500)}}();</script>""", height=0)
+st.html("""<script>!function(){function e(){try{var e=window.top.document;if(e.getElementById("lgb-don-trang-bao"))return!0;var n=e.createElement("style");return n.id="lgb-don-trang-bao",n.textContent='[class*="viewerBadge"],[class*="profileContainer"],[data-testid="manage-app-button"],[class*="manageAppButton"]{display:none !important;}',e.head.appendChild(n),!0}catch(e){return!1}}if(!e()){var n=0,t=setInterval((function(){(e()||++n>20)&&clearInterval(t)}),500)}}();</script>""")
 
 
 @st.cache_data(show_spinner=False)
@@ -130,11 +126,11 @@ if not hasattr(st, "navigation") or not hasattr(st, "Page"):
 TRANG_HOI_DAP = st.Page("giao_dien/cong_dan.py", title="Hỏi đáp thủ tục",
                         icon="🏠", default=True)
 TRANG_GIOI_THIEU = st.Page("giao_dien/gioi_thieu.py", title="Giới thiệu dự án",
-                           icon="📖")
+                            icon="📖")
 TRANG_QUAN_TRI = st.Page("giao_dien/quan_tri.py", title="Quản trị kho",
-                         icon="⚙️")
+                          icon="⚙️")
 TRANG_TAI_KHOAN = st.Page("giao_dien/tai_khoan.py", title="Tài khoản & phân quyền",
-                          icon="👥")
+                           icon="👥")
 
 
 def duoc_vao_quan_tri() -> bool:
