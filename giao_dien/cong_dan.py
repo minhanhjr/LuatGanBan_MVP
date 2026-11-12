@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
+from streamlit.components.v1 import html as _html
 
 # Chống trình duyệt tự dịch tiếng Việt sang tiếng Anh làm mất chữ
 st.markdown('<html lang="vi"></html>', unsafe_allow_html=True)
@@ -122,19 +123,86 @@ def _tts_vi(text: str) -> str:
         return ""
 
 
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def _audio_b64(duong_dan: str) -> tuple[str, str]:
+    p = Path(duong_dan)
+    if not p.exists():
+        return "", ""
+    mime = "audio/mpeg" if p.suffix.lower() == ".mp3" else "audio/wav"
+    return base64.b64encode(p.read_bytes()).decode(), mime
+
+
+_SVG_LOA = ('<svg width="38" height="38" viewBox="0 0 24 24" fill="white">'
+            '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05'
+            'c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 '
+            '5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>')
+_SVG_DUNG = ('<svg width="34" height="34" viewBox="0 0 24 24" fill="white">'
+             '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>')
+
+
 def nut_loa(duong_dan, *, nhan: str, tu_phat: bool = False) -> bool:
     if not duong_dan:
         return False
-    p = Path(duong_dan)
-    if not p.exists():
+    b64, mime = _audio_b64(str(duong_dan))
+    if not b64:
         return False
-    mime = "audio/mpeg" if p.suffix.lower() == ".mp3" else "audio/wav"
-    try:
-        st.write(f"🔊 **{nhan}**")
-        st.audio(p.read_bytes(), format=mime, autoplay=tu_phat)
-        return True
-    except Exception:
-        return False
+
+    tu_phat_js = ("a.play().then(function(){}).catch(function(){"
+                  "tt.textContent='Bấm vào loa để nghe';});") if tu_phat else ""
+    _html(f"""
+<div style="display:flex;align-items:center;gap:16px;
+            font-family:'Times New Roman',Times,serif;padding:4px 0;">
+  <button id="b" aria-label="Nghe" style="
+      width:76px;height:76px;min-width:76px;border-radius:50%;border:4px solid #cfe0f7;
+      background:#0B4F9E;cursor:pointer;display:flex;align-items:center;
+      justify-content:center;box-shadow:0 4px 14px rgba(11,79,158,.35);
+      transition:transform .15s;"></button>
+  <div>
+    <div style="font-size:19px;font-weight:bold;color:#0B4F9E;">{nhan}</div>
+    <div id="tt" style="font-size:14px;color:#666;margin-top:2px;">Bấm để nghe</div>
+  </div>
+  <audio id="a" src="data:{mime};base64,{b64}" preload="auto"></audio>
+</div>
+<script>
+(function(){{
+  var a=document.getElementById('a'), b=document.getElementById('b'),
+      tt=document.getElementById('tt');
+  var LOA=`{_SVG_LOA}`, DUNG=`{_SVG_DUNG}`;
+  function ve(dangPhat){{ b.innerHTML = dangPhat ? DUNG : LOA; }}
+
+  var ID = Math.random().toString(36).slice(2);
+  var kenh = null;
+  try {{ kenh = new BroadcastChannel('lgb-loa'); }} catch(e) {{}}
+  if (kenh) {{
+    kenh.onmessage = function(ev){{ if (ev.data !== ID && !a.paused) {{ a.pause(); }} }};
+  }}
+  function imCacLoaKhac(){{
+    if (kenh) {{ try {{ kenh.postMessage(ID); }} catch(e) {{}} }}
+    try {{
+      var ds = [];
+      var khung = window.parent.document.querySelectorAll('iframe');
+      for (var i = 0; i < khung.length; i++) {{
+        try {{
+          var d = khung[i].contentDocument;
+          if (d && d !== document) {{ ds = ds.concat([].slice.call(d.querySelectorAll('audio'))); }}
+        }} catch(e) {{}}
+      }}
+      ds = ds.concat([].slice.call(window.parent.document.querySelectorAll('audio')));
+      ds.forEach(function(x){{ if (x !== a && !x.paused) {{ x.pause(); }} }});
+    }} catch(e) {{}}
+  }}
+  ve(false);
+  b.onclick=function(){{ if(a.paused){{a.play();}} else {{a.pause();}} }};
+  b.onmousedown=function(){{ b.style.transform='scale(.94)'; }};
+  b.onmouseup=function(){{ b.style.transform='scale(1)'; }};
+  a.onplay =function(){{ imCacLoaKhac(); ve(true);  tt.textContent='Đang đọc…'; }};
+  a.onpause=function(){{ ve(false); tt.textContent='Bấm để nghe lại'; }};
+  a.onended=function(){{ ve(false); tt.textContent='Bấm để nghe lại'; }};
+  {tu_phat_js}
+}})();
+</script>
+""", height=100)
+    return True
 
 
 def loa(text: str, *, nhan: str = "Nghe", tu_phat: bool = False) -> None:
@@ -276,15 +344,14 @@ _DS_TIENG = NN.dang_dung()
 _MA_THEO_NHAN = {n.nhan: n.ma for n in _DS_TIENG}
 _MAC_DINH = [n.nhan for n in _DS_TIENG if n.ma in NN.MAC_DINH] or [_DS_TIENG[0].nhan]
 
-st.markdown("""<style>
+st.html("""<style>
   .st-key-lgb-chon-tieng { max-width: 560px; margin: 0 auto; }
   .st-key-lgb-chon-tieng label p { font-size: 18px !important; font-weight: bold !important;
                                    color: #003366 !important; text-align: center; }
   .st-key-lgb-chon-tieng [data-baseweb="select"] > div { min-height: 52px; font-size: 18px; }
   .st-key-lgb-chon-tieng [data-baseweb="tag"] { font-size: 17px !important; height: auto !important;
                                                padding: 6px 10px !important; }
-</style>""", unsafe_allow_html=True)
-
+</style>""")
 try:
     _khung_chon = st.container(key="lgb-chon-tieng")
 except TypeError:
@@ -326,7 +393,7 @@ if audio_in is not None:
         ss.audio_da_xu_ly = van_tay
         with st.spinner("Đang nghe bà con nói…"):
             van_ban, _nguon = nghe(audio_in, tieng_mong=la_tieng_mong,
-                                   ngon_ngu=ma_ngon_ngu)
+                                    ngon_ngu=ma_ngon_ngu)
         if not van_ban:
             st.error("Máy chưa nghe rõ, bà con bấm nói lại nhé.")
             loa("Máy chưa nghe rõ, bà con bấm nói lại nhé.",
@@ -456,7 +523,7 @@ def hien_ket_qua(kq: dict) -> None:
                           else "chữ Mông RPA")
             st.caption(nhan_ortho)
             st.markdown(f"### {kq['mong']['hien_thi']}")
-            st.text(f"RPA         : {kq['mong']['rpa']}")
+            st.text(f"RPA        : {kq['mong']['rpa']}")
             st.text(f"Phiên âm VN: {kq['mong']['vn']}")
 
     la_can_bo = bool(auth.nguoi_dang_nhap())
@@ -524,7 +591,7 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
                 placeholder="Ví dụ: Vợ tôi mới sinh con, tôi muốn làm giấy khai sinh",
                 height=90)
             if st.form_submit_button("Gửi câu hỏi", type="primary",
-                                     use_container_width=True) and txt.strip():
+                                      use_container_width=True) and txt.strip():
                 xu_ly_cau_noi(txt.strip())
                 st.rerun()
 
