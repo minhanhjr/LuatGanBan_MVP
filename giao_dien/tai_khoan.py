@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tài khoản & phân quyền — CHỈ quản trị viên vào được."""
+"""Vai trò CTV ngôn ngữ & phân quyền — CHỈ quản trị viên vào được."""
 from __future__ import annotations
 
 import pandas as pd
@@ -12,7 +12,7 @@ if not auth.la_admin():
     st.stop()
 
 toi = auth.nguoi_dang_nhap()
-st.title("👥 Tài khoản & phân quyền")
+st.title("👥 Vai trò CTV ngôn ngữ")
 st.caption("Chỉ quản trị viên thấy trang này. Quản trị viên mặc định có đủ 5 quyền.")
 
 users = auth.doc_users()
@@ -38,7 +38,7 @@ with tab_ds:
         rows.append({
             "Tài khoản": t,
             "Mô tả": u.get("mo_ta", ""),
-            "Vai trò": "Quản trị" if u["vai_tro"] == "admin" else "Cán bộ",
+            "Vai trò": "Quản trị" if u["vai_tro"] == "admin" else "CTV ngôn ngữ",
             "Số quyền": f"{len(q)}/{len(auth.QUYEN)}",
             "Hoạt động": "✅" if u.get("kich_hoat", True) else "⛔",
             "Đăng nhập cuối": (u.get("dang_nhap_cuoi") or "—").replace("T", " "),
@@ -58,7 +58,7 @@ with tab_ds:
         vai_tro = c1.selectbox(
             "Vai trò", ["can_bo", "admin"],
             index=0 if u["vai_tro"] == "can_bo" else 1,
-            format_func=lambda v: "Cán bộ" if v == "can_bo" else "Quản trị viên (toàn quyền)")
+            format_func=lambda v: "CTV ngôn ngữ" if v == "can_bo" else "Quản trị viên (toàn quyền)")
         kich_hoat = c2.checkbox("Cho phép đăng nhập", value=u.get("kich_hoat", True))
 
         st.markdown("**Quyền trên trang Quản trị kho**")
@@ -109,7 +109,7 @@ with tab_them:
         mo_ta_moi = st.text_input("Mô tả (họ tên, chức danh)")
         vai_tro_moi = st.selectbox(
             "Vai trò", ["can_bo", "admin"],
-            format_func=lambda v: "Cán bộ" if v == "can_bo" else "Quản trị viên")
+            format_func=lambda v: "CTV ngôn ngữ" if v == "can_bo" else "Quản trị viên")
         st.markdown("**Quyền** (mặc định cấp đủ 5 quyền)")
         q_moi = [q for q, nhan in auth.QUYEN.items()
                  if st.checkbox(nhan, value=True, key=f"new_{q}")]
