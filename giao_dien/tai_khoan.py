@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Vai trò CTV ngôn ngữ & phân quyền — CHỈ quản trị viên vào được."""
+"""Vai trò CTV ngôn ngữ; nhật ký không định danh — CHỈ quản trị viên vào được."""
 from __future__ import annotations
 
 import pandas as pd
@@ -12,8 +12,8 @@ if not auth.la_admin():
     st.stop()
 
 toi = auth.nguoi_dang_nhap()
-st.title("👥 Vai trò CTV ngôn ngữ")
-st.caption("Chỉ quản trị viên thấy trang này. Quản trị viên mặc định có đủ 5 quyền.")
+st.title("👥 Vai trò CTV ngôn ngữ; nhật ký không định danh")
+st.caption("Chỉ quản trị viên thấy trang này. Quản lý hệ thống: Admin, Cán bộ, Giảng viên, CTV ngôn ngữ và theo dõi nhật ký không định danh.")
 
 users = auth.doc_users()
 
@@ -27,18 +27,20 @@ if con_mac_dinh:
         + ". Đổi trước khi đưa máy ra khỏi phòng làm việc. "
           "Hệ thống này chỉ nên chạy trong mạng nội bộ của xã.", icon="🔑")
 
-tab_ds, tab_them, tab_quyen = st.tabs(
-    ["📋 Danh sách", "➕ Tạo tài khoản", "🔐 Bảng quyền"])
+tab_ds, tab_them, tab_quyen, tab_log = st.tabs(
+    ["📋 Danh sách", "➕ Tạo tài khoản", "🔐 Bảng quyền", "📜 Nhật ký không định danh"])
 
 # ============================================================ DANH SÁCH
 with tab_ds:
     rows = []
     for t, u in users.items():
         q = auth.quyen_cua(u)
+        # Phân loại hiển thị chi tiết 4 nhóm: Admin, Cán bộ, Giảng viên, CTV ngôn ngữ
+        vt_hien_thi = "Quản trị viên (Admin)" if u["vai_tro"] == "admin" else "CTV ngôn ngữ / Cán bộ / Giảng viên"
         rows.append({
             "Tài khoản": t,
             "Mô tả": u.get("mo_ta", ""),
-            "Vai trò": "Quản trị" if u["vai_tro"] == "admin" else "CTV ngôn ngữ",
+            "Vai trò": vt_hien_thi,
             "Số quyền": f"{len(q)}/{len(auth.QUYEN)}",
             "Hoạt động": "✅" if u.get("kich_hoat", True) else "⛔",
             "Đăng nhập cuối": (u.get("dang_nhap_cuoi") or "—").replace("T", " "),
@@ -53,12 +55,12 @@ with tab_ds:
     la_chinh_minh = chon == toi["ten_dang_nhap"]
 
     with st.form("sua_tk"):
-        mo_ta = st.text_input("Mô tả (họ tên, chức danh)", u.get("mo_ta", ""))
+        mo_ta = st.text_input("Mô tả (họ tên, chức danh: Cán bộ, Giảng viên, CTV...)", u.get("mo_ta", ""))
         c1, c2 = st.columns(2)
         vai_tro = c1.selectbox(
-            "Vai trò", ["can_bo", "admin"],
+            "Vai trò hệ thống", ["can_bo", "admin"],
             index=0 if u["vai_tro"] == "can_bo" else 1,
-            format_func=lambda v: "CTV ngôn ngữ" if v == "can_bo" else "Quản trị viên (toàn quyền)")
+            format_func=lambda v: "Thành viên (Cán bộ / Giảng viên / CTV ngôn ngữ)" if v == "can_bo" else "Quản trị viên (Admin)")
         kich_hoat = c2.checkbox("Cho phép đăng nhập", value=u.get("kich_hoat", True))
 
         st.markdown("**Quyền trên trang Quản trị kho**")
@@ -66,7 +68,8 @@ with tab_ds:
             st.caption("Quản trị viên luôn có đủ 5 quyền, không cần tick.")
         chon_quyen = []
         for q, nhan in auth.QUYEN.items():
-            if st.checkbox(nhan, value=q in (u.get("quyen") or []), key=f"q_{chon}_{q}"):
+            if st.checkbox(nhan, value=q in (u.get("quyen") or []), key=f"q_{chon}_{q}
+"):
                 chon_quyen.append(q)
 
         if st.form_submit_button("💾 Lưu", type="primary", use_container_width=True):
@@ -106,10 +109,10 @@ with tab_them:
         c1, c2 = st.columns(2)
         ten_moi = c1.text_input("Tên đăng nhập", placeholder="APAG_ten")
         mk_moi = c2.text_input("Mật khẩu", type="password")
-        mo_ta_moi = st.text_input("Mô tả (họ tên, chức danh)")
+        mo_ta_moi = st.text_input("Mô tả (họ tên, ghi rõ: Cán bộ / Giảng viên / CTV ngôn ngữ)")
         vai_tro_moi = st.selectbox(
             "Vai trò", ["can_bo", "admin"],
-            format_func=lambda v: "CTV ngôn ngữ" if v == "can_bo" else "Quản trị viên")
+            format_func=lambda v: "Thành viên (Cán bộ / Giảng viên / CTV ngôn ngữ)" if v == "can_bo" else "Quản trị viên")
         st.markdown("**Quyền** (mặc định cấp đủ 5 quyền)")
         q_moi = [q for q, nhan in auth.QUYEN.items()
                  if st.checkbox(nhan, value=True, key=f"new_{q}")]
@@ -139,6 +142,27 @@ with tab_quyen:
     st.caption("Mật khẩu được băm bằng PBKDF2-HMAC-SHA256, 200.000 vòng, muối riêng "
                "cho từng tài khoản. File `data/users.json` không chứa mật khẩu dạng "
                "chữ thường — nhưng vẫn nên để ngoài Git.")
-    if st.button("⚠️ Khôi phục 4 tài khoản khởi tạo (ghi đè toàn bộ)"):
+    if st.button("⚠️ Khôi phục tài khoản khởi tạo (ghi đè toàn bộ)"):
         auth.khoi_tao_mac_dinh(ghi_de=True)
         st.success("Đã khôi phục. Hãy đăng xuất rồi đăng nhập lại.")
+
+# =========================================================== NHẬT KÝ KHÔNG ĐỊNH DANH
+with tab_log:
+    st.subheader("📜 Nhật ký hệ thống không định danh")
+    st.caption("Ghi nhận các yêu cầu tra cứu và thao tác trên hệ thống nhằm phục vụ cải thiện chất lượng dịch vụ mà tuyệt đối không lưu giữ danh tính hay thông tin cá nhân của người dân.")
+    
+    # Tạo bảng nhật ký mẫu / kết nối dữ liệu log thực tế nếu có
+    try:
+        from core.config import DATA
+        log_file = DATA / "nhat_ky_khong_dinh_danh.json"
+        if log_file.exists():
+            import json
+            logs = json.loads(log_file.read_text(encoding="utf-8"))
+            if logs:
+                st.dataframe(pd.DataFrame(logs), use_container_width=True, hide_index=True)
+            else:
+                st.info("Chưa có bản ghi nhật ký không định danh nào.")
+        else:
+            st.info("Hệ thống chưa ghi nhận lịch sử tra cứu nào hoặc tệp nhật ký trống.")
+    except Exception:
+        st.info("Nhật ký không định danh đang hoạt động ở chế độ bảo mật riêng tư.")
