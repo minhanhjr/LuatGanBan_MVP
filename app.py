@@ -133,7 +133,7 @@ TRANG_GIOI_THIEU = st.Page("giao_dien/gioi_thieu.py", title="Giới thiệu dự
                            icon="📖")
 TRANG_QUAN_TRI = st.Page("giao_dien/quan_tri.py", title="Quản trị kho",
                          icon="⚙️")
-TRANG_TAI_KHOAN = st.Page("giao_dien/tai_khoan.py", title="Tài khoản & phân quyền",
+TRANG_TAI_KHOAN = st.Page("giao_dien/tai_khoan.py", title="Vai trò CTV ngôn ngữ; nhật ký không định danh",
                           icon="👥")
 
 
@@ -149,7 +149,7 @@ def nut_chuyen_trang_can_bo() -> None:
     if duoc_vao_quan_tri():
         st.page_link(TRANG_QUAN_TRI, label="Quản trị kho")
     if auth.la_admin():
-        st.page_link(TRANG_TAI_KHOAN, label="Tài khoản & phân quyền")
+        st.page_link(TRANG_TAI_KHOAN, label="Vai trò CTV ngôn ngữ; nhật ký không định danh")
 
 
 # ==========================================================================
@@ -169,7 +169,7 @@ with col_dang_nhap:
         # Đã đăng nhập: Hiển thị icon user gọn nhẹ
         with st.popover("👤", use_container_width=True, help=f"Đang đăng nhập: {u.get('ten_dang_nhap')}"):
             st.markdown(f"**{u.get('mo_ta') or u['ten_dang_nhap']}**")
-            st.caption(f"{'Quản trị viên' if u['vai_tro'] == 'admin' else 'Cán bộ'}")
+            st.caption(f"{'Quản trị viên' if u['vai_tro'] == 'admin' else 'CTV ngôn ngữ'}")
             if u.get("phai_doi_mk"):
                 st.warning("Cần đổi mật khẩu.", icon="🔑")
             nut_chuyen_trang_can_bo()
@@ -210,7 +210,7 @@ if auth.nguoi_dang_nhap():
             st.page_link(TRANG_QUAN_TRI, label="Quản trị kho")
     if auth.la_admin():
         with cot_nut[2]:
-            st.page_link(TRANG_TAI_KHOAN, label="Tài khoản")
+            st.page_link(TRANG_TAI_KHOAN, label="Vai trò CTV ngôn ngữ")
 
 st.html("<hr style='margin: 8px 0 15px 0;'>")
 
