@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tài khoản & phân quyền.
+"""Vai trò CTV ngôn ngữ & phân quyền.
 
 Lưu ở `data/users.json`. Mật khẩu KHÔNG lưu dạng chữ thường: băm bằng
 PBKDF2-HMAC-SHA256 (200.000 vòng, mỗi tài khoản một muối riêng) — chỉ dùng thư
@@ -36,8 +36,8 @@ TAT_CA_QUYEN = list(QUYEN.keys())
 # Tài khoản khởi tạo lần đầu (mật khẩu sẽ được băm ngay, file gốc không lưu chữ thường)
 MAC_DINH = [
     ("admin_Minh", "admin",        "admin",  "Minh — quản trị hệ thống"),
-    ("APAG_han",   "123123",       "can_bo", "Cán bộ Hân"),
-    ("APAG_thai",  "123123",       "can_bo", "Cán bộ Thái"),
+    ("APAG_han",   "123123",       "can_bo", "CTV ngôn ngữ Hân"),
+    ("APAG_thai",  "123123",       "can_bo", "CTV ngôn ngữ Thái"),
     ("APAG_gv",    "giangvien123", "can_bo", "Giảng viên hướng dẫn"),
 ]
 
@@ -54,7 +54,7 @@ def _tao_ban_ghi(ten: str, mat_khau: str, vai_tro: str, mo_ta: str,
     return {
         "ten_dang_nhap": ten,
         "mo_ta": mo_ta,
-        "vai_tro": vai_tro,                       # 'admin' | 'can_bo'
+        "vai_tro": vai_tro,                       # 'admin' | 'can_bo' (hiểu là CTV ngôn ngữ)
         "quyen": TAT_CA_QUYEN if quyen is None else quyen,
         "muoi": muoi,
         "bam": bam(mat_khau, muoi),
