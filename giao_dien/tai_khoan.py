@@ -68,8 +68,7 @@ with tab_ds:
             st.caption("Quản trị viên luôn có đủ 5 quyền, không cần tick.")
         chon_quyen = []
         for q, nhan in auth.QUYEN.items():
-            if st.checkbox(nhan, value=q in (u.get("quyen") or []), key=f"q_{chon}_{q}
-"):
+            if st.checkbox(nhan, value=q in (u.get("quyen") or []), key=f"q_{chon}_{q}"):
                 chon_quyen.append(q)
 
         if st.form_submit_button("💾 Lưu", type="primary", use_container_width=True):
@@ -151,7 +150,6 @@ with tab_log:
     st.subheader("📜 Nhật ký hệ thống không định danh")
     st.caption("Ghi nhận các yêu cầu tra cứu và thao tác trên hệ thống nhằm phục vụ cải thiện chất lượng dịch vụ mà tuyệt đối không lưu giữ danh tính hay thông tin cá nhân của người dân.")
     
-    # Tạo bảng nhật ký mẫu / kết nối dữ liệu log thực tế nếu có
     try:
         from core.config import DATA
         log_file = DATA / "nhat_ky_khong_dinh_danh.json"
