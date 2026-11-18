@@ -82,7 +82,7 @@ def _tat_ca_thu_tuc() -> list[tuple[str, ThuTuc]]:
 
 
 def _khop_truc_tiep_hoac_tu_khoa(cau_noi: str, *, chi_khop_chinh_xac: bool = False) -> tuple[str, ThuTuc, float] | None:
-    """Khớp trực tiếp theo mã thủ tục, tên thủ tục chuẩn hóa hoặc từ khóa đặc trưng."""
+    """Khớp trực tiếp theo mã thủ tục, tên thủ tục chuẩn hóa (3 vòng ưu tiên) hoặc từ khóa đặc trưng."""
     ds = _tat_ca_thu_tuc()
     if not ds:
         return None
@@ -92,18 +92,35 @@ def _khop_truc_tiep_hoac_tu_khoa(cau_noi: str, *, chi_khop_chinh_xac: bool = Fal
     if not cau_ch:
         return None
 
-    # 1. Khớp theo mã thủ tục (VD: 2.000522) hoặc tên thủ tục đầy đủ
+    # Vòng 1: Khớp chính xác theo mã thủ tục (VD: 2.000522)
     for ma_nhom, tt in ds:
         if tt.ma_thu_tuc and tt.ma_thu_tuc in cau_raw:
             return ma_nhom, tt, 1.0
+
+    # Vòng 2: Khớp chính xác 100% tên thủ tục sau khi chuẩn hóa (tránh khớp nhầm tên ngắn hơn)
+    for ma_nhom, tt in ds:
         ten_ch = _chuan_hoa(tt.ten)
-        if ten_ch and (cau_ch == ten_ch or ten_ch in cau_ch or (len(cau_ch) >= 18 and cau_ch in ten_ch)):
+        if ten_ch and cau_ch == ten_ch:
             return ma_nhom, tt, 1.0
+
+    # Vòng 3: Khớp chuỗi con — ưu tiên thủ tục có độ dài gần nhất với câu hỏi
+    ung_vien_con: list[tuple[int, int, str, ThuTuc]] = []
+    for ma_nhom, tt in ds:
+        ten_ch = _chuan_hoa(tt.ten)
+        if not ten_ch:
+            continue
+        if ten_ch in cau_ch or (len(cau_ch) >= 12 and cau_ch in ten_ch):
+            chenh_lech = abs(len(ten_ch) - len(cau_ch))
+            ung_vien_con.append((chenh_lech, -len(ten_ch), ma_nhom, tt))
+    if ung_vien_con:
+        ung_vien_con.sort(key=lambda x: (x[0], x[1]))
+        _, _, ma_nhom, tt = ung_vien_con[0]
+        return ma_nhom, tt, 0.98
 
     if chi_khop_chinh_xac:
         return None
 
-    # 2. Lưới dự phòng theo độ trùng từ khóa đặc trưng (bỏ từ dừng)
+    # Vòng 4: Lưới dự phòng theo độ trùng từ khóa đặc trưng (bỏ từ dừng)
     tu_cau = {w for w in cau_ch.split() if len(w) >= 2 and w not in _TU_DUNG}
     if not tu_cau:
         return None
