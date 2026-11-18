@@ -20,7 +20,10 @@ WORKDIR /app
 
 # Cài thư viện trước, tách khỏi mã nguồn để tận dụng cache khi build lại
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt psycopg2-binary
+
+# Vá trang HTML gốc của Streamlit để chặn Google Translate tự dịch làm mất chữ
+RUN python -c 'import pathlib, streamlit; p = pathlib.Path(streamlit.__file__).parent / "static" / "index.html"; s = p.read_text(encoding="utf-8"); s = s.replace("<html lang=\"en\">", "<html lang=\"vi\" translate=\"no\" class=\"notranslate\">").replace("<html>", "<html lang=\"vi\" translate=\"no\" class=\"notranslate\">").replace("<head>", "<head><meta name=\"google\" content=\"notranslate\" />"); p.write_text(s, encoding="utf-8")'
 
 COPY . .
 
