@@ -2,19 +2,20 @@
 """Cổng người dân — hỏi đáp thủ tục bằng giọng nói.
 
 Nguyên tắc giao diện (voice-first):
-  * MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự chạy hết chuỗi,
+- MỘT nút. Bà con bấm micro, nói, bấm dừng — hệ thống tự chạy hết chuỗi,
     không có nút "xử lý" thứ hai.
-  * Không hiện con số kỹ thuật. Bà con không cần biết "độ tin cậy 10%";
+- Không hiện con số kỹ thuật. Bà con không cần biết "độ tin cậy 10%";
     họ chỉ cần biết máy nghe rõ hay chưa. Mọi chỉ số dời vào mục dành cho
     cán bộ ở cuối trang.
-  * Chữ nào cũng có loa. Người không đọc được vẫn phải dùng được trọn vẹn,
+- Chữ nào cũng có loa. Người không đọc được vẫn phải dùng được trọn vẹn,
     nên mọi nội dung trả lời đều kèm trình phát tiếng.
-  * Gõ chữ là đường phụ, đặt cuối trang, cỡ nhỏ.
+- Gõ chữ là đường phụ, đặt cuối trang, cỡ nhỏ.
 """
 from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import time
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,13 @@ from core.stt import nghe
 from core.translate import (dich_sang_mong, dich_sang_tay, dich_sang_viet,
                             dich_tay_sang_viet)
 from core.tts import NHAN_TANG, phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
+
+try:
+    from core.config import DATA as _DATA_DIR
+except ImportError:
+    _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+LINK_MESSENGER = "https://m.me/1231078760088554"
 
 # Tích hợp kết nối CSDL PostgreSQL an toàn để lọc bài đã duyệt
 try:
@@ -72,6 +80,34 @@ if not kb.load_kb():
         "**Kho dữ liệu trống.** Hãy kiểm tra lại kết nối Cơ sở dữ liệu PostgreSQL."
     )
     st.stop()
+
+
+# ==========================================================================
+# GHI NHẬT KÝ PHẢN HỒI KHÔNG ĐỊNH DANH (IS-02 / TUÂN THỦ R6)
+# ==========================================================================
+def _ghi_phan_hoi_khong_dinh_danh(loai: str, kq: dict) -> None:
+    """Ghi yêu cầu hỗ trợ / đánh giá ra data/phan_hoi.jsonl.
+    Tuyệt đối KHÔNG lưu giọng nói, KHÔNG lưu câu nói gốc hay thông tin định danh (R6).
+    """
+    try:
+        _DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tep_log = _DATA_DIR / "phan_hoi.jsonl"
+        tt = kq.get("thu_tuc")
+        tuyen = kq.get("tuyen") or {}
+        now = datetime.now()
+        ban_ghi = {
+            "thoi_gian": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "ngay": now.strftime("%Y-%m-%d"),
+            "loai": loai,
+            "ma_thu_tuc": tt.ma_thu_tuc if tt else "",
+            "ten_thu_tuc": tt.ten if tt else tuyen.get("ten_nhom", "VẤN ĐỀ KHÁC"),
+            "ngon_ngu": kq.get("ma_ngon_ngu", "viet"),
+            "tin_cay": round(float(tuyen.get("tin_cay_thu_tuc", 0)), 2),
+        }
+        with tep_log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(ban_ghi, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 # ==========================================================================
@@ -414,21 +450,69 @@ if audio_in is not None:
 
 
 # ==========================================================================
-# 3. KẾT QUẢ
+# 3. KẾT QUẢ, ĐÁNH GIÁ & KẾT NỐI CÁN BỘ
 # ==========================================================================
+def khung_danh_gia_cau_tra_loi(kq: dict) -> None:
+    """Nút đánh giá Hiểu được / Chưa hiểu (IS-02) để đo KPI M2."""
+    tt = kq.get("thu_tuc")
+    ma_phien = hashlib.md5(
+        f"{tt.key if tt else ''}_{kq.get('cau_noi', '')}".encode("utf-8")
+    ).hexdigest()[:10]
+    khoa_da_dg = f"da_danh_gia_{ma_phien}"
+
+    st.markdown("---")
+    st.markdown("**Bà con nghe có hiểu hướng dẫn này không?**")
+    c_hieu, c_chua = st.columns(2)
+    with c_hieu:
+        if st.button("👍 Hiểu được", key=f"btn_hieu_{ma_phien}", use_container_width=True):
+            if not ss.get(khoa_da_dg):
+                _ghi_phan_hoi_khong_dinh_danh("danh_gia_hieu", kq)
+                ss[khoa_da_dg] = "hieu"
+            st.rerun()
+    with c_chua:
+        if st.button("👎 Chưa hiểu", key=f"btn_chua_{ma_phien}", use_container_width=True):
+            if not ss.get(khoa_da_dg):
+                _ghi_phan_hoi_khong_dinh_danh("danh_gia_chua_hieu", kq)
+                ss[khoa_da_dg] = "chua_hieu"
+            st.rerun()
+
+    trang_thai_dg = ss.get(khoa_da_dg)
+    if trang_thai_dg == "hieu":
+        st.success("✅ Cảm ơn bà con! Rất vui vì hướng dẫn dễ hiểu.")
+    elif trang_thai_dg == "chua_hieu":
+        st.info("🙏 Cảm ơn bà con. Bà con có thể bấm nghe lại hoặc nhắn tin hỏi cán bộ bên dưới nhé.")
+
+
 def nut_goi_can_bo(kq: dict) -> None:
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🙋 CẦN CÁN BỘ HỖ TRỢ TRỰC TIẾP", use_container_width=True):
-        tt = kq.get("thu_tuc")
-        ss.danh_sach_yeu_cau.append({
-            "thoi_gian": datetime.now().strftime("%d/%m %H:%M:%S"),
-            "van_de": tt.ten if tt else kq["tuyen"]["ten_nhom"],
-            "ma": tt.ma_thu_tuc if tt else "",
-            "chi_tiet": kq["cau_noi"],
-            "tin_cay": kq["tuyen"].get("tin_cay_thu_tuc", 0),
-            "trang_thai": "Mới",
-        })
-        st.success("✅ Đã gửi. Cán bộ sẽ liên hệ với bà con.")
+    tt = kq.get("thu_tuc")
+    ma_phien = hashlib.md5(
+        f"{tt.key if tt else ''}_{kq.get('cau_noi', '')}".encode("utf-8")
+    ).hexdigest()[:10]
+    khoa_cb = f"da_goi_cb_{ma_phien}"
+
+    if st.button("🙋 CẦN CÁN BỘ HỖ TRỢ TRỰC TIẾP", key=f"btn_cb_{ma_phien}", use_container_width=True):
+        if not ss.get(khoa_cb):
+            _ghi_phan_hoi_khong_dinh_danh("can_can_bo", kq)
+            ss[khoa_cb] = True
+            ss.danh_sach_yeu_cau.append({
+                "thoi_gian": datetime.now().strftime("%d/%m %H:%M:%S"),
+                "van_de": tt.ten if tt else kq["tuyen"]["ten_nhom"],
+                "ma": tt.ma_thu_tuc if tt else "",
+                "chi_tiet": kq["cau_noi"],
+                "tin_cay": kq["tuyen"].get("tin_cay_thu_tuc", 0),
+                "trang_thai": "Mới",
+            })
+
+    if ss.get(khoa_cb):
+        st.success("✅ Đã ghi nhận yêu cầu hỗ trợ. Bấm nút xanh bên dưới để nhắn tin hoặc gửi ghi âm trực tiếp cho cán bộ:")
+
+    st.link_button(
+        "💬 Nhắn tin trực tiếp với cán bộ qua Messenger",
+        LINK_MESSENGER,
+        type="primary",
+        use_container_width=True,
+    )
 
 
 def hien_ket_qua(kq: dict) -> None:
@@ -567,6 +651,7 @@ def hien_ket_qua(kq: dict) -> None:
             st.caption("Thời gian xử lý: "
                        + "  ·  ".join(f"{k} {v:.1f}s" for k, v in tg.items()))
 
+    khung_danh_gia_cau_tra_loi(kq)
     nut_goi_can_bo(kq)
 
 
