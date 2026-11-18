@@ -39,12 +39,12 @@ tốn bao nhiêu tiền.
 6. Số viết bằng chữ số kèm đơn vị rõ ràng: "1 ngày", "8.000 đồng", "2 tờ".
 7. Thay từ hành chính bằng từ đời thường, nhưng phải giữ lại tên chính thức ở \
 trường `ten_chinh_thuc` để cán bộ đối chiếu:
-   - "Trung tâm Phục vụ hành chính công cấp xã" -> "nơi làm giấy tờ ở xã"
-   - "Giấy chứng sinh" -> "giấy bệnh viện cấp khi sinh con"
-   - "Thẻ căn cước công dân" -> "thẻ căn cước"
-   - "Tờ khai đăng ký khai sinh" -> "tờ giấy khai sinh xin ở xã"
-   - "lệ phí" -> "tiền phải trả"
-   - "thời hạn giải quyết" -> "chờ bao lâu"
+- "Trung tâm Phục vụ hành chính công cấp xã" -> "nơi làm giấy tờ ở xã"
+- "Giấy chứng sinh" -> "giấy bệnh viện cấp khi sinh con"
+- "Thẻ căn cước công dân" -> "thẻ căn cước"
+- "Tờ khai đăng ký khai sinh" -> "tờ giấy khai sinh xin ở xã"
+- "lệ phí" -> "tiền phải trả"
+- "thời hạn giải quyết" -> "chờ bao lâu"
 
 # QUY TẮC VỀ SỰ THẬT (quan trọng hơn mọi quy tắc trên)
 8. CHỈ dùng thông tin có trong TÀI LIỆU được cung cấp. Đây là hướng dẫn pháp lý: \
@@ -149,19 +149,28 @@ def don_gian_hoa(
     model: str | None = None,
     dung_cache: bool = True,
 ) -> dict:
-    """Trả về dict theo SCHEMA. Có cache đĩa -> lần 2 là 0 giây."""
-    cf = _cache_file(tt.key, cau_hoi)
-    if dung_cache and cf.exists():
-        data = json.loads(cf.read_text(encoding="utf-8"))
-        data["_tu_cache"] = True
-        return data
+    """Trả về dict theo SCHEMA. Ưu tiên dùng chung cache chuẩn để phản hồi 0 giây."""
+    if dung_cache:
+        # 1. Kiểm tra cache khớp chính xác câu hỏi (nếu có)
+        cf = _cache_file(tt.key, cau_hoi)
+        if cf.exists():
+            data = json.loads(cf.read_text(encoding="utf-8"))
+            data["_tu_cache"] = True
+            return data
+
+        # 2. Dùng chung bản tóm tắt chuẩn đã nạp sẵn cho toàn bộ 27 thủ tục
+        cf_mac_dinh = _cache_file(tt.key, CAU_HOI_MAC_DINH)
+        if cf_mac_dinh.exists():
+            data = json.loads(cf_mac_dinh.read_text(encoding="utf-8"))
+            data["_tu_cache"] = True
+            return data
 
     tai_lieu = tt.section(*SECTIONS_CAN_DUNG) or tt.text()
     tai_lieu = tai_lieu[:GIOI_HAN_KY_TU]
 
     prompt = USER_TEMPLATE.format(
         ten=tt.ten, ma=tt.ma_thu_tuc, cap=tt.cap_thuc_hien,
-        doi_tuong=tt.doi_tuong, tai_lieu=tai_lieu, cau_hoi=cau_hoi,
+        doi_tuong=tt.doi_tuong, tai_lieu=tai_lieu, cau_hoi=CAU_HOI_MAC_DINH,
     )
     data = goi_gemini_json(
         prompt, schema=SCHEMA, system=SYSTEM_PROMPT,
@@ -169,17 +178,19 @@ def don_gian_hoa(
     )
     data["_key"] = tt.key
     data["_tu_cache"] = False
-    cf.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    cf_save = _cache_file(tt.key, CAU_HOI_MAC_DINH)
+    cf_save.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return data
 
 
 def lay_cau_tra_loi(key: str, cau_hoi: str = CAU_HOI_MAC_DINH) -> dict | None:
     """Dùng cho luồng chạy khi MẤT MẠNG: chỉ đọc cache, không gọi API."""
-    cf = _cache_file(key, cau_hoi)
-    if cf.exists():
-        d = json.loads(cf.read_text(encoding="utf-8"))
-        d["_tu_cache"] = True
-        return d
+    for ch in (cau_hoi, CAU_HOI_MAC_DINH):
+        cf = _cache_file(key, ch)
+        if cf.exists():
+            d = json.loads(cf.read_text(encoding="utf-8"))
+            d["_tu_cache"] = True
+            return d
     return None
 
 
