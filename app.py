@@ -93,9 +93,55 @@ st.html("""
 """)
 
 # ==========================================================================
-# DỌN TRANG BAO NGOÀI CỦA STREAMLIT CLOUD (Đã nén mã JS)
+# CHẶN GOOGLE TRANSLATE LÀM MẤT CHỮ & DỌN TRANG BAO NGOÀI CỦA STREAMLIT
 # ==========================================================================
-_html("""<script>!function(){function e(){try{var e=window.top.document;if(e.getElementById("lgb-don-trang-bao"))return!0;var n=e.createElement("style");return n.id="lgb-don-trang-bao",n.textContent='[class*="viewerBadge"],[class*="profileContainer"],[data-testid="manage-app-button"],[class*="manageAppButton"]{display:none !important;}',e.head.appendChild(n),!0}catch(e){return!1}}if(!e()){var n=0,t=setInterval((function(){(e()||++n>20)&&clearInterval(t)}),500)}}();</script>""", height=0)
+_html("""
+<script>
+(function() {
+    function cauHinhTrangBao() {
+        try {
+            var docs = [window.parent.document];
+            if (window.top && window.top.document !== window.parent.document) {
+                docs.push(window.top.document);
+            }
+            docs.forEach(function(doc) {
+                if (!doc) return;
+                // 1. Khóa ngôn ngữ tiếng Việt & gắn cờ notranslate chống Google Translate
+                doc.documentElement.setAttribute('lang', 'vi');
+                doc.documentElement.setAttribute('translate', 'no');
+                doc.documentElement.classList.add('notranslate');
+                if (doc.body) {
+                    doc.body.setAttribute('translate', 'no');
+                    doc.body.classList.add('notranslate');
+                }
+                if (!doc.querySelector('meta[name="google"]')) {
+                    var meta = doc.createElement('meta');
+                    meta.name = 'google';
+                    meta.content = 'notranslate';
+                    doc.head.appendChild(meta);
+                }
+                // 2. Ẩn badge thừa của Streamlit
+                if (!doc.getElementById('lgb-don-trang-bao')) {
+                    var st = doc.createElement('style');
+                    st.id = 'lgb-don-trang-bao';
+                    st.textContent = '[class*="viewerBadge"],[class*="profileContainer"],[data-testid="manage-app-button"],[class*="manageAppButton"]{display:none !important;}';
+                    doc.head.appendChild(st);
+                }
+            });
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+    if (!cauHinhTrangBao()) {
+        var lanThu = 0;
+        var boDem = setInterval(function() {
+            if (cauHinhTrangBao() || ++lanThu > 20) clearInterval(boDem);
+        }, 300);
+    }
+})();
+</script>
+""", height=0)
 
 
 @st.cache_data(show_spinner=False)
@@ -110,7 +156,7 @@ def header() -> None:
     img = (f'<img src="data:image/png;base64,{b64}" alt="" width="26" height="26" '
            f'style="width:26px;height:26px;object-fit:contain;">' if b64 else "")
     st.html(
-        f'<div class="lgb-header">{img}'
+        f'<div class="lgb-header notranslate" translate="no">{img}'
         f'<span class="lgb-ten">LUẬT GẦN BẢN</span>'
         f'<span class="lgb-slogan">Chuyển đổi số: không để ai bị bỏ lại phía sau</span></div>'
     )
