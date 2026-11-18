@@ -8,9 +8,11 @@ Chỉ đường sai thủ tục = bà con đi sai cửa, mất một ngày đư�
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 
 from core.config import DANH_MUC_THU_TUC, NGUONG_TU_TIN
-from core.kb import ThuTuc, danh_sach_rut_gon, theo_key
+from core.kb import ThuTuc, danh_sach_rut_gon, theo_key, theo_nhom
 from core.llm import goi_gemini_json
 
 SCHEMA_NHOM = {
@@ -48,6 +50,83 @@ NGUYÊN TẮC
 - Thà chuyển cho cán bộ còn hơn chỉ sai thủ tục.
 """
 
+_TU_DUNG = {
+    "thu", "tuc", "dang", "ky", "cap", "ban", "sao", "viec", "ho", "tich",
+    "cua", "cong", "dan", "viet", "nam", "tai", "co", "quan", "nha", "nuoc",
+    "tham", "quyen", "cho", "nguoi", "da", "duoc", "giai", "quyet",
+    "toi", "muon", "lam", "xin", "giay", "hoi", "ve",
+}
+
+
+def _chuan_hoa(van_ban: str) -> str:
+    s = (van_ban or "").strip().lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    s = s.replace("đ", "d")
+    s = re.sub(r"[^a-z0-9\s\.]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if s.startswith("thu tuc "):
+        s = s[8:].strip()
+    return s
+
+
+def _tat_ca_thu_tuc() -> list[tuple[str, ThuTuc]]:
+    ket_qua: list[tuple[str, ThuTuc]] = []
+    da_co: set[str] = set()
+    for ma_nhom in DANH_MUC_THU_TUC:
+        for tt in theo_nhom(ma_nhom):
+            if tt.key not in da_co:
+                da_co.add(tt.key)
+                ket_qua.append((ma_nhom, tt))
+    return ket_qua
+
+
+def _khop_truc_tiep_hoac_tu_khoa(cau_noi: str, *, chi_khop_chinh_xac: bool = False) -> tuple[str, ThuTuc, float] | None:
+    """Khớp trực tiếp theo mã thủ tục, tên thủ tục chuẩn hóa hoặc từ khóa đặc trưng."""
+    ds = _tat_ca_thu_tuc()
+    if not ds:
+        return None
+
+    cau_raw = (cau_noi or "").strip()
+    cau_ch = _chuan_hoa(cau_raw)
+    if not cau_ch:
+        return None
+
+    # 1. Khớp theo mã thủ tục (VD: 2.000522) hoặc tên thủ tục đầy đủ
+    for ma_nhom, tt in ds:
+        if tt.ma_thu_tuc and tt.ma_thu_tuc in cau_raw:
+            return ma_nhom, tt, 1.0
+        ten_ch = _chuan_hoa(tt.ten)
+        if ten_ch and (cau_ch == ten_ch or ten_ch in cau_ch or (len(cau_ch) >= 18 and cau_ch in ten_ch)):
+            return ma_nhom, tt, 1.0
+
+    if chi_khop_chinh_xac:
+        return None
+
+    # 2. Lưới dự phòng theo độ trùng từ khóa đặc trưng (bỏ từ dừng)
+    tu_cau = {w for w in cau_ch.split() if len(w) >= 2 and w not in _TU_DUNG}
+    if not tu_cau:
+        return None
+
+    best_score = 0.0
+    best_item: tuple[str, ThuTuc] | None = None
+    for ma_nhom, tt in ds:
+        ten_ch = _chuan_hoa(tt.ten)
+        tu_ten = {w for w in ten_ch.split() if len(w) >= 2 and w not in _TU_DUNG}
+        if not tu_ten:
+            continue
+        giao = tu_cau & tu_ten
+        if not giao:
+            continue
+        diem = 0.65 * (len(giao) / len(tu_cau)) + 0.35 * (len(giao) / len(tu_ten))
+        if diem > best_score:
+            best_score = diem
+            best_item = (ma_nhom, tt)
+
+    if best_item and best_score >= max(0.55, NGUONG_TU_TIN):
+        return best_item[0], best_item[1], round(min(best_score, 0.95), 2)
+    return None
+
 
 def phan_loai_nhom(cau_noi: str) -> dict:
     prompt = (
@@ -79,7 +158,38 @@ def chon_thu_tuc(cau_noi: str, nhom: str) -> dict:
 
 def dinh_tuyen(cau_noi: str) -> dict:
     """Kết quả điều hướng đầy đủ cho 1 câu nói."""
-    r1 = phan_loai_nhom(cau_noi)
+    # Tầng 0: Khớp trực tiếp tên hoặc mã thủ tục trong kho -> trả về ngay
+    khop_chuan = _khop_truc_tiep_hoac_tu_khoa(cau_noi, chi_khop_chinh_xac=True)
+    if khop_chuan:
+        nhom_k, tt_k, diem_k = khop_chuan
+        return {
+            "nhom": nhom_k,
+            "ten_nhom": DANH_MUC_THU_TUC.get(nhom_k, "THỦ TỤC HÀNH CHÍNH"),
+            "tin_cay_nhom": diem_k,
+            "cau_hoi_lam_ro": "",
+            "thu_tuc": tt_k,
+            "tin_cay_thu_tuc": diem_k,
+            "can_can_bo": False,
+        }
+
+    # Tầng 1 & 2: Phân loại bằng Gemini AI (có lưới an toàn từ khóa nếu lỗi/vào nhóm KHAC)
+    try:
+        r1 = phan_loai_nhom(cau_noi)
+    except Exception:
+        khop_du_phong = _khop_truc_tiep_hoac_tu_khoa(cau_noi, chi_khop_chinh_xac=False)
+        if khop_du_phong:
+            nhom_k, tt_k, diem_k = khop_du_phong
+            return {
+                "nhom": nhom_k,
+                "ten_nhom": DANH_MUC_THU_TUC.get(nhom_k, "THỦ TỤC HÀNH CHÍNH"),
+                "tin_cay_nhom": diem_k,
+                "cau_hoi_lam_ro": "",
+                "thu_tuc": tt_k,
+                "tin_cay_thu_tuc": diem_k,
+                "can_can_bo": False,
+            }
+        raise
+
     nhom = r1.get("nhom", "KHAC")
     out = {
         "nhom": nhom,
@@ -90,7 +200,27 @@ def dinh_tuyen(cau_noi: str) -> dict:
         "tin_cay_thu_tuc": 0.0,
         "can_can_bo": False,
     }
+
+    # Nếu AI phân vào KHAC hoặc tin cậy nhóm thấp, tìm tiếp trong nhóm KHAC hoặc từ khóa trước khi đẩy cho cán bộ
     if nhom == "KHAC" or out["tin_cay_nhom"] < NGUONG_TU_TIN:
+        ds_khac = danh_sach_rut_gon("KHAC") if nhom == "KHAC" else []
+        if ds_khac:
+            r2 = chon_thu_tuc(cau_noi, "KHAC")
+            tt_khac = theo_key(r2.get("key", ""))
+            if tt_khac is not None and float(r2.get("do_tin_cay", 0)) >= NGUONG_TU_TIN:
+                out["thu_tuc"] = tt_khac
+                out["tin_cay_thu_tuc"] = float(r2.get("do_tin_cay", 0))
+                return out
+
+        khop_du_phong = _khop_truc_tiep_hoac_tu_khoa(cau_noi, chi_khop_chinh_xac=False)
+        if khop_du_phong:
+            nhom_k, tt_k, diem_k = khop_du_phong
+            out["nhom"] = nhom_k
+            out["ten_nhom"] = DANH_MUC_THU_TUC.get(nhom_k, out["ten_nhom"])
+            out["thu_tuc"] = tt_k
+            out["tin_cay_thu_tuc"] = diem_k
+            return out
+
         out["can_can_bo"] = True
         return out
 
@@ -100,5 +230,13 @@ def dinh_tuyen(cau_noi: str) -> dict:
     out["tin_cay_thu_tuc"] = float(r2.get("do_tin_cay", 0))
     out["cau_hoi_lam_ro"] = out["cau_hoi_lam_ro"] or r2.get("cau_hoi_lam_ro", "")
     if tt is None or out["tin_cay_thu_tuc"] < NGUONG_TU_TIN:
+        khop_du_phong = _khop_truc_tiep_hoac_tu_khoa(cau_noi, chi_khop_chinh_xac=False)
+        if khop_du_phong:
+            nhom_k, tt_k, diem_k = khop_du_phong
+            out["nhom"] = nhom_k
+            out["ten_nhom"] = DANH_MUC_THU_TUC.get(nhom_k, out["ten_nhom"])
+            out["thu_tuc"] = tt_k
+            out["tin_cay_thu_tuc"] = diem_k
+            return out
         out["can_can_bo"] = True
     return out
