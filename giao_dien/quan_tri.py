@@ -10,6 +10,7 @@ import json
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -23,6 +24,11 @@ from core.llm import (LoiQuota, danh_sach_model, ly_do_chan, model_dang_dung,
                         so_den, xoa_so_den)
 from core.simplify import CAU_HOI_MAC_DINH, _cache_file, don_gian_hoa
 from core.translate import GLOSSARY_FILE
+
+try:
+    from core.config import DATA as _DATA_DIR
+except ImportError:
+    _DATA_DIR = ROOT / "data"
 
 # Nhập các hàm DB từ core.database an toàn
 try:
@@ -46,7 +52,7 @@ if not u:
 
 st.title("🛠️ Quản trị kho hướng dẫn")
 st.caption(f"Đang đăng nhập: **{u.get('mo_ta') or u['ten_dang_nhap']}** · "
-           f"{'Quản trị viên (toàn quyền)' if auth.la_admin() else 'Cán bộ'}")
+           f"{'Quản trị viên (toàn quyền)' if auth.la_admin() else 'Cán bộ / Giảng viên / CTV ngôn ngữ'}")
 st.caption("Dữ liệu được lưu đồng bộ vĩnh viễn vào Cơ sở dữ liệu PostgreSQL.")
 
 TAB_DEF = [
@@ -55,8 +61,9 @@ TAB_DEF = [
     ("cau_tra_loi",      "✅ Kiểm duyệt câu trả lời (DB)"),
     ("tu_vung_giong",    "🗣️ Từ vựng & giọng đọc"),
     ("bo_nho_tam",       "🧹 Bộ nhớ tạm"),
+    ("phan_hoi",         "💬 Phản hồi & Nhật ký (IS-02)"),
 ]
-duoc_phep = [(q, nhan) for q, nhan in TAB_DEF if auth.co_quyen(q)]
+duoc_phep = [(q, nhan) for q, nhan in TAB_DEF if q == "phan_hoi" or auth.co_quyen(q)]
 if not duoc_phep:
     st.warning("Tài khoản của bạn chưa được cấp quyền nào trên trang này.")
     st.stop()
@@ -297,3 +304,106 @@ if "bo_nho_tam" in tabs:
                     st.success("Đã xóa cache rút gọn thành công!")
                 else:
                     st.info("Thư mục cache rút gọn trống.")
+
+
+# =========================================================== 6 · PHẢN HỒI & NHẬT KÝ (IS-02)
+if "phan_hoi" in tabs:
+    with tabs["phan_hoi"]:
+        st.subheader("💬 Nhật ký phản hồi & Đánh giá câu trả lời (IS-02)")
+        st.caption(
+            "Tuân thủ R6: Hệ thống chỉ ghi nhận số liệu không định danh (thời gian, thủ tục, ngôn ngữ, "
+            "đánh giá mức độ hiểu và lượt kết nối cán bộ/Messenger) phục vụ đo KPI M2 và nhật ký tuần HĐ3.4; "
+            "tuyệt đối không lưu giọng nói hay thông tin cá nhân."
+        )
+
+        tep_log = _DATA_DIR / "phan_hoi.jsonl"
+        ban_ghi_list = []
+        if tep_log.exists():
+            for dong in tep_log.read_text(encoding="utf-8").splitlines():
+                dong = dong.strip()
+                if not dong:
+                    continue
+                try:
+                    ban_ghi_list.append(json.loads(dong))
+                except Exception:
+                    continue
+
+        if not ban_ghi_list:
+            st.info("Chưa có dữ liệu phản hồi nào được ghi nhận. Khi người dân bấm đánh giá (Hiểu được / Chưa hiểu) hoặc yêu cầu cán bộ hỗ trợ, dữ liệu sẽ hiển thị tại đây.")
+        else:
+            df_log = pd.DataFrame(ban_ghi_list)
+            for cot in ["thoi_gian", "ngay", "loai", "ma_thu_tuc", "ten_thu_tuc", "ngon_ngu", "tin_cay"]:
+                if cot not in df_log.columns:
+                    df_log[cot] = ""
+
+            df_log = df_log.sort_values(by="thoi_gian", ascending=False).reset_index(drop=True)
+
+            # Chỉ số tổng hợp & KPI M2
+            so_hieu = int((df_log["loai"] == "danh_gia_hieu").sum())
+            so_chua_hieu = int((df_log["loai"] == "danh_gia_chua_hieu").sum())
+            so_can_cb = int((df_log["loai"] == "can_can_bo").sum())
+            tong_dg = so_hieu + so_chua_hieu
+            ty_le_chua_hieu = f"{(so_chua_hieu / tong_dg * 100):.1f}%" if tong_dg > 0 else "—"
+
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Tổng lượt ghi nhận", len(df_log))
+            m2.metric("👍 Hiểu được", so_hieu)
+            m3.metric("👎 Chưa hiểu", so_chua_hieu)
+            m4.metric("Tỷ lệ chưa hiểu (M2)", ty_le_chua_hieu)
+            m5.metric("🙋 Cần cán bộ / Messenger", so_can_cb)
+
+            st.divider()
+
+            # Bộ lọc theo thủ tục / ngày / loại phản hồi
+            NHAN_LOAI = {
+                "danh_gia_hieu": "👍 Hiểu được",
+                "danh_gia_chua_hieu": "👎 Chưa hiểu",
+                "can_can_bo": "🙋 Cần cán bộ / Messenger",
+            }
+            NHAN_NGON_NGU = {
+                "mong": "Tiếng Mông",
+                "tay": "Tiếng Tày",
+                "viet": "Tiếng Việt",
+            }
+
+            f1, f2, f3 = st.columns([2, 1.2, 1.3])
+            ds_thu_tuc = ["Tất cả thủ tục"] + sorted([x for x in df_log["ten_thu_tuc"].dropna().unique() if str(x).strip()])
+            ds_ngay = ["Tất cả các ngày"] + sorted([x for x in df_log["ngay"].dropna().unique() if str(x).strip()], reverse=True)
+            ds_loai = ["Tất cả loại", "👍 Hiểu được", "👎 Chưa hiểu", "🙋 Cần cán bộ / Messenger"]
+
+            chon_tt = f1.selectbox("Lọc theo thủ tục", ds_thu_tuc, key="loc_ph_thu_tuc")
+            chon_ngay = f2.selectbox("Lọc theo ngày", ds_ngay, key="loc_ph_ngay")
+            chon_loai = f3.selectbox("Lọc theo loại", ds_loai, key="loc_ph_loai")
+
+            df_loc = df_log.copy()
+            df_loc["Loại phản hồi"] = df_loc["loai"].map(lambda x: NHAN_LOAI.get(x, x))
+            df_loc["Ngôn ngữ"] = df_loc["ngon_ngu"].map(lambda x: NHAN_NGON_NGU.get(x, x))
+
+            if chon_tt != "Tất cả thủ tục":
+                df_loc = df_loc[df_loc["ten_thu_tuc"] == chon_tt]
+            if chon_ngay != "Tất cả các ngày":
+                df_loc = df_loc[df_loc["ngay"] == chon_ngay]
+            if chon_loai != "Tất cả loại":
+                df_loc = df_loc[df_loc["Loại phản hồi"] == chon_loai]
+
+            df_hien_thi = df_loc[[
+                "thoi_gian", "ngay", "Loại phản hồi", "ma_thu_tuc", "ten_thu_tuc", "Ngôn ngữ", "tin_cay"
+            ]].rename(columns={
+                "thoi_gian": "Thời gian",
+                "ngay": "Ngày",
+                "ma_thu_tuc": "Mã thủ tục",
+                "ten_thu_tuc": "Tên thủ tục",
+                "tin_cay": "Độ tin cậy AI",
+            })
+
+            st.dataframe(df_hien_thi, use_container_width=True, hide_index=True)
+
+            csv_bytes = df_hien_thi.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                label="⬇️ Xuất nhật ký phản hồi ra tệp CSV (HĐ3.4)",
+                data=csv_bytes,
+                file_name=f"nhat_ky_phan_hoi_LGB_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                type="primary",
+                use_container_width=True,
+            )
