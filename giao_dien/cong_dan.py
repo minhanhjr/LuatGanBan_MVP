@@ -23,6 +23,9 @@ from pathlib import Path
 import streamlit as st
 from streamlit.components.v1 import html as _html
 
+# Chống trình duyệt tự dịch tiếng Việt sang tiếng Anh làm mất chữ
+st.markdown('<html lang="vi"></html>', unsafe_allow_html=True)
+
 from core import auth, kb
 from core.config import (DANH_MUC_THU_TUC, HMONG_ORTHOGRAPHY,
                          NGUONG_TU_TIN, TTS_HMONG_PROVIDER)
@@ -46,7 +49,6 @@ LINK_MESSENGER = "https://m.me/1231078760088554"
 try:
     from core.database import get_db_connection
     import psycopg2.extras
-
     def lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa: str = ""):
         try:
             conn = get_db_connection()
@@ -78,17 +80,6 @@ if not kb.load_kb():
         "**Kho dữ liệu trống.** Hãy kiểm tra lại kết nối Cơ sở dữ liệu PostgreSQL."
     )
     st.stop()
-
-
-def _tat_ca_thu_tuc_kho() -> list[kb.ThuTuc]:
-    """Lấy toàn bộ danh sách thủ tục duy nhất hiện có trong kho KB."""
-    tat_ca, da_co = [], set()
-    for ma_nhom in DANH_MUC_THU_TUC:
-        for tt in kb.theo_nhom(ma_nhom):
-            if tt.key not in da_co:
-                da_co.add(tt.key)
-                tat_ca.append(tt)
-    return tat_ca
 
 
 # ==========================================================================
@@ -321,8 +312,7 @@ _XU_LY_TIENG = {
 
 def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
                   ngon_ngu_chon: str = "mong",
-                  cac_tieng: list[str] | None = None,
-                  key_thu_tuc: str | None = None) -> dict:
+                  cac_tieng: list[str] | None = None) -> dict:
     if cac_tieng is None:
         cac_tieng = [ngon_ngu_chon]
     t0 = time.perf_counter()
@@ -331,28 +321,15 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
     with st.status("Đang tìm hướng dẫn cho bà con…", expanded=False) as box:
         box.write("Đang xem bà con cần làm việc gì…")
         t = time.perf_counter()
-        if key_thu_tuc and kb.theo_key(key_thu_tuc) is not None:
-            tt = kb.theo_key(key_thu_tuc)
-            tuyen = {
-                "nhom": getattr(tt, "nhom", ""),
-                "ten_nhom": DANH_MUC_THU_TUC.get(getattr(tt, "nhom", ""), "THỦ TỤC HÀNH CHÍNH"),
-                "tin_cay_nhom": 1.0,
-                "cau_hoi_lam_ro": "",
-                "_key": tt.key,
-                "tin_cay_thu_tuc": 1.0,
-                "can_can_bo": False,
-            }
-        else:
-            try:
-                tuyen = _dinh_tuyen(cau_noi)
-            except Exception as e:
-                kq["loi"] = _thong_diep_loi(e)
-                box.update(label="Chưa xong", state="error", expanded=False)
-                return kq
-            tt = kb.theo_key(tuyen["_key"]) if tuyen["_key"] else None
-
+        try:
+            tuyen = _dinh_tuyen(cau_noi)
+        except Exception as e:
+            kq["loi"] = _thong_diep_loi(e)
+            box.update(label="Chưa xong", state="error", expanded=False)
+            return kq
         kq["thoi_gian"]["dinh_tuyen"] = time.perf_counter() - t
         kq["tuyen"] = tuyen
+        tt = kb.theo_key(tuyen["_key"]) if tuyen["_key"] else None
         kq["thu_tuc"] = tt
 
         if tuyen["can_can_bo"] or tt is None:
@@ -385,11 +362,11 @@ def chay_pipeline(cau_noi: str, *, phat_giong_mong: bool = True,
     return kq
 
 
-def xu_ly_cau_noi(van_ban: str, *, key_thu_tuc: str | None = None) -> None:
+def xu_ly_cau_noi(van_ban: str) -> None:
     ss.cau_noi = van_ban
     ma = ss.get("ma_ngon_ngu", "mong")
     cac = list(ss.get("cac_ngon_ngu") or [ma])
-    kq = chay_pipeline(van_ban, ngon_ngu_chon=ma, cac_tieng=cac, key_thu_tuc=key_thu_tuc)
+    kq = chay_pipeline(van_ban, ngon_ngu_chon=ma, cac_tieng=cac)
     kq["la_tieng_mong"] = ma == "mong"
     kq["ma_ngon_ngu"] = ma
     kq["cac_ngon_ngu"] = cac
@@ -705,43 +682,38 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
 
     with t_chon:
         st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
+        
+        # Tra cứu thủ tục từ CSDL PostgreSQL qua Hộp chọn thả xuống (Drop-down Selectbox)
+        if lay_danh_sach_thu_tuc_cho_nguoi_dan:
+            tu_khoa_db = st.text_input("🔍 Gõ từ khóa để lọc danh sách (nếu cần):", "", key="tim_db_cong_dan")
+            ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
+            if ds_db:
+                st.success(f"Tìm thấy **{len(ds_db)}** thủ tục đã phê duyệt:")
+                dict_db = {f"📌 {item['ten_thu_tuc']} (Mã: {item['ma_thu_tuc']})": item['ten_thu_tuc'] for item in ds_db}
+                
+                thu_tuc_duoc_chon = st.selectbox(
+                    "👇 Bấm vào ô này để chọn thủ tục cần làm:",
+                    options=list(dict_db.keys()),
+                    key="sb_db_cong_dan"
+                )
+                
+                if st.button("🚀 Xem hướng dẫn thủ tục đã chọn", type="primary", use_container_width=True):
+                    ten_goc = dict_db[thu_tuc_duoc_chon]
+                    xu_ly_cau_noi(ten_goc)
+                    st.rerun()
+            else:
+                st.info("Chưa có thủ tục phù hợp nào được phê duyệt.")
+            st.divider()
 
-        # Danh sách đầy đủ toàn bộ thủ tục hiện có trong kho (27 thủ tục)
-        tat_ca_tt = _tat_ca_thu_tuc_kho()
-        tu_khoa_loc = st.text_input("🔍 Gõ từ khóa hoặc mã thủ tục để lọc nhanh (nếu cần):", "", key="tim_db_cong_dan").strip().lower()
-        if tu_khoa_loc:
-            ds_hien_thi = [
-                t for t in tat_ca_tt
-                if tu_khoa_loc in t.ten.lower() or tu_khoa_loc in (t.ma_thu_tuc or "").lower()
-            ]
-        else:
-            ds_hien_thi = tat_ca_tt
-
-        if ds_hien_thi:
-            st.success(f"Có sẵn **{len(ds_hien_thi)}/{len(tat_ca_tt)}** thủ tục trong kho:")
-            tt_chon_tat_ca = st.selectbox(
-                "👇 Bấm vào ô này để chọn bất kỳ thủ tục nào:",
-                options=ds_hien_thi,
-                format_func=lambda t: f"📌 {t.ten} (Mã: {t.ma_thu_tuc})",
-                key="sb_tat_ca_thu_tuc",
-            )
-            if st.button("🚀 Xem hướng dẫn thủ tục đã chọn", type="primary", use_container_width=True, key="btn_xem_tat_ca"):
-                xu_ly_cau_noi(tt_chon_tat_ca.ten, key_thu_tuc=tt_chon_tat_ca.key)
-                st.rerun()
-        else:
-            st.info("Không tìm thấy thủ tục khớp với từ khóa vừa nhập.")
-
-        st.divider()
-
-        nhom_chon = st.selectbox("Hoặc lọc theo nhóm việc:", list(DANH_MUC_THU_TUC.keys()),
+        nhom_chon = st.selectbox("Việc gì?", list(DANH_MUC_THU_TUC.keys()),
                                  format_func=lambda k: DANH_MUC_THU_TUC[k])
         ds = kb.theo_nhom(nhom_chon)
         if not ds:
             st.warning("Chưa có dữ liệu cho nhóm này.")
         else:
-            tt_chon = st.selectbox("Thủ tục cụ thể trong nhóm", ds, format_func=lambda t: t.ten)
-            if st.button("Xem hướng dẫn theo nhóm", type="primary", use_container_width=True, key="btn_xem_nhom"):
-                xu_ly_cau_noi(tt_chon.ten, key_thu_tuc=tt_chon.key)
+            tt_chon = st.selectbox("Thủ tục cụ thể", ds, format_func=lambda t: t.ten)
+            if st.button("Xem hướng dẫn", type="primary", use_container_width=True):
+                xu_ly_cau_noi(tt_chon.ten)
                 st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
@@ -765,4 +737,4 @@ if auth.nguoi_dang_nhap():
         if ss.danh_sach_yeu_cau:
             st.markdown("### Phiếu chờ cán bộ")
             for p in reversed(ss.danh_sach_yeu_cau[-5:]):
-                st.caption(f"{p['thoi_gian']} — {p['van_de']}")
+                st.caption(f"{p['thoi_gian']} — {p['van_de']}")   
