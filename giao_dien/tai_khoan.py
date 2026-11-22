@@ -13,7 +13,7 @@ if not auth.la_admin():
 
 toi = auth.nguoi_dang_nhap()
 st.title("👥 Phân quyền")
-st.caption("Chỉ quản trị viên thấy trang này. Quản lý tài khoản, phân quyền hệ thống (Admin, Cán bộ, Giảng viên, CTV ngôn ngữ) và theo dõi nhật ký không định danh.")
+st.caption("Chỉ quản trị viên thấy trang này. Quản lý tài khoản, phân quyền từng vai trò (Admin, Cán bộ, Giảng viên, CTV ngôn ngữ) và theo dõi nhật ký không định danh.")
 
 users = auth.doc_users()
 
@@ -30,16 +30,17 @@ if con_mac_dinh:
 tab_ds, tab_them, tab_quyen, tab_log = st.tabs(
     ["📋 Danh sách", "➕ Tạo tài khoản", "🔐 Bảng quyền", "📜 Nhật ký không định danh"])
 
+DS_VAI_TRO = list(auth.VAI_TRO.keys())  # ["admin", "can_bo", "giang_vien", "ctv"]
+
 # ============================================================ DANH SÁCH
 with tab_ds:
     rows = []
     for t, u in users.items():
         q = auth.quyen_cua(u)
-        vt_hien_thi = "Quản trị viên (Admin)" if u["vai_tro"] == "admin" else "Cán bộ / Giảng viên / CTV ngôn ngữ"
         rows.append({
             "Tài khoản": t,
             "Mô tả": u.get("mo_ta", ""),
-            "Vai trò": vt_hien_thi,
+            "Vai trò": auth.nhan_vai_tro(u.get("vai_tro", "can_bo")),
             "Số quyền": f"{len(q)}/{len(auth.QUYEN)}",
             "Hoạt động": "✅" if u.get("kich_hoat", True) else "⛔",
             "Đăng nhập cuối": (u.get("dang_nhap_cuoi") or "—").replace("T", " "),
@@ -54,12 +55,15 @@ with tab_ds:
     la_chinh_minh = chon == toi["ten_dang_nhap"]
 
     with st.form("sua_tk"):
-        mo_ta = st.text_input("Mô tả (họ tên, chức danh: Cán bộ, Giảng viên, CTV...)", u.get("mo_ta", ""))
+        mo_ta = st.text_input("Mô tả (họ tên, đơn vị công tác...)", u.get("mo_ta", ""))
         c1, c2 = st.columns(2)
+        vt_hien_tai = u.get("vai_tro") if u.get("vai_tro") in DS_VAI_TRO else "can_bo"
         vai_tro = c1.selectbox(
-            "Vai trò hệ thống", ["can_bo", "admin"],
-            index=0 if u["vai_tro"] == "can_bo" else 1,
-            format_func=lambda v: "Thành viên (Cán bộ / Giảng viên / CTV ngôn ngữ)" if v == "can_bo" else "Quản trị viên (Admin)")
+            "Vai trò hệ thống",
+            DS_VAI_TRO,
+            index=DS_VAI_TRO.index(vt_hien_tai),
+            format_func=auth.nhan_vai_tro,
+        )
         kich_hoat = c2.checkbox("Cho phép đăng nhập", value=u.get("kich_hoat", True))
 
         st.markdown("**Quyền trên trang Quản trị kho**")
@@ -107,10 +111,13 @@ with tab_them:
         c1, c2 = st.columns(2)
         ten_moi = c1.text_input("Tên đăng nhập", placeholder="APAG_ten")
         mk_moi = c2.text_input("Mật khẩu", type="password")
-        mo_ta_moi = st.text_input("Mô tả (họ tên, ghi rõ: Cán bộ / Giảng viên / CTV ngôn ngữ)")
+        mo_ta_moi = st.text_input("Mô tả (họ tên, đơn vị công tác...)")
         vai_tro_moi = st.selectbox(
-            "Vai trò", ["can_bo", "admin"],
-            format_func=lambda v: "Thành viên (Cán bộ / Giảng viên / CTV ngôn ngữ)" if v == "can_bo" else "Quản trị viên")
+            "Vai trò hệ thống",
+            DS_VAI_TRO,
+            index=1,  # Mặc định chọn Cán bộ
+            format_func=auth.nhan_vai_tro,
+        )
         st.markdown("**Quyền** (mặc định cấp đủ 5 quyền)")
         q_moi = [q for q, nhan in auth.QUYEN.items()
                  if st.checkbox(nhan, value=True, key=f"new_{q}")]
@@ -127,8 +134,11 @@ with tab_quyen:
     bang = []
     for t, u in users.items():
         q = auth.quyen_cua(u)
-        bang.append({"Tài khoản": t,
-                     **{nhan: ("✅" if k in q else "—") for k, nhan in auth.QUYEN.items()}})
+        bang.append({
+            "Tài khoản": t,
+            "Vai trò": auth.nhan_vai_tro(u.get("vai_tro", "can_bo")),
+            **{nhan: ("✅" if k in q else "—") for k, nhan in auth.QUYEN.items()},
+        })
     st.dataframe(pd.DataFrame(bang), use_container_width=True, hide_index=True)
 
     st.divider()
