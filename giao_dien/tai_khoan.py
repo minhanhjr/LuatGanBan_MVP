@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Vai trò CTV ngôn ngữ; nhật ký không định danh — CHỈ quản trị viên vào được."""
+"""Phân quyền hệ thống & nhật ký không định danh — CHỈ quản trị viên vào được."""
 from __future__ import annotations
 
 import pandas as pd
@@ -12,8 +12,8 @@ if not auth.la_admin():
     st.stop()
 
 toi = auth.nguoi_dang_nhap()
-st.title("👥 Vai trò CTV ngôn ngữ; nhật ký không định danh")
-st.caption("Chỉ quản trị viên thấy trang này. Quản lý hệ thống: Admin, Cán bộ, Giảng viên, CTV ngôn ngữ và theo dõi nhật ký không định danh.")
+st.title("👥 Phân quyền")
+st.caption("Chỉ quản trị viên thấy trang này. Quản lý tài khoản, phân quyền hệ thống (Admin, Cán bộ, Giảng viên, CTV ngôn ngữ) và theo dõi nhật ký không định danh.")
 
 users = auth.doc_users()
 
@@ -35,8 +35,7 @@ with tab_ds:
     rows = []
     for t, u in users.items():
         q = auth.quyen_cua(u)
-        # Phân loại hiển thị chi tiết 4 nhóm: Admin, Cán bộ, Giảng viên, CTV ngôn ngữ
-        vt_hien_thi = "Quản trị viên (Admin)" if u["vai_tro"] == "admin" else "CTV ngôn ngữ / Cán bộ / Giảng viên"
+        vt_hien_thi = "Quản trị viên (Admin)" if u["vai_tro"] == "admin" else "Cán bộ / Giảng viên / CTV ngôn ngữ"
         rows.append({
             "Tài khoản": t,
             "Mô tả": u.get("mo_ta", ""),
