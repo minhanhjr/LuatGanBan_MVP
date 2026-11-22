@@ -35,9 +35,9 @@ st.html("""
       div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child { flex: 0 0 auto !important; width: auto !important; }
   }
 
-  /* NÚT "GIỚI THIỆU DỰ ÁN": CĂN GIỮA TUYỆT ĐỐI, VIÊN THUỐC SANG TRỌNG */
+  /* NÚT "GIỚI THIỆU DỰ ÁN" & "ĐIỀU KHOẢN SỬ DỤNG": CĂN GIỮA TUYỆT ĐỐI, VIÊN THUỐC SANG TRỌNG */
   .element-container:has([data-testid="stPageLink"]) { display: flex !important; justify-content: center !important; width: 100% !important; margin: 5px 0 !important; }
-  [data-testid="stPageLink"] { align-self: center !important; margin: 0 auto !important; display: flex !important; flex-direction: row !important; justify-content: center !important; align-items: center !important; width: max-content !important; min-width: 200px !important; max-width: 90vw !important; background-color: #ffffff !important; border: 1px solid #e2e8f0 !important; border-radius: 40px !important; padding: 8px 24px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.03) !important; transition: all 0.2s ease !important; text-decoration: none !important; }
+  [data-testid="stPageLink"] { align-self: center !important; margin: 0 auto !important; display: flex !important; flex-direction: row !important; justify-content: center !important; align-items: center !important; width: max-content !important; min-width: 185px !important; max-width: 90vw !important; background-color: #ffffff !important; border: 1px solid #e2e8f0 !important; border-radius: 40px !important; padding: 8px 22px !important; box-shadow: 0 2px 8px rgba(0,0,0,0.03) !important; transition: all 0.2s ease !important; text-decoration: none !important; }
   [data-testid="stPageLink"]:hover { background-color: #f8fafc !important; border-color: #cbd5e1 !important; box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important; transform: translateY(-1px) !important; }
   [data-testid="stPageLink"] span { white-space: nowrap !important; overflow: visible !important; text-overflow: clip !important; font-family: 'Times New Roman', Times, serif !important; font-size: 15.5px !important; color: #003366 !important; font-weight: 600 !important; letter-spacing: 0.2px !important; }
 
@@ -177,6 +177,8 @@ TRANG_HOI_DAP = st.Page("giao_dien/cong_dan.py", title="Hỏi đáp thủ tục"
                         icon="🏠", default=True)
 TRANG_GIOI_THIEU = st.Page("giao_dien/gioi_thieu.py", title="Giới thiệu dự án",
                            icon="📖")
+TRANG_DIEU_KHOAN = st.Page("giao_dien/dieu_khoan.py", title="Điều khoản sử dụng",
+                           icon="📜")
 TRANG_QUAN_TRI = st.Page("giao_dien/quan_tri.py", title="Quản trị kho",
                          icon="⚙️")
 TRANG_TAI_KHOAN = st.Page("giao_dien/tai_khoan.py", title="Vai trò CTV ngôn ngữ; nhật ký không định danh",
@@ -192,6 +194,7 @@ def nut_chuyen_trang_can_bo() -> None:
     """Các nút đi tới trang dành cho cán bộ. Thanh bên đã bị ẩn nên đây là
     đường duy nhất để vào trang quản trị sau khi đăng nhập."""
     st.page_link(TRANG_HOI_DAP, label="Trang hỏi đáp")
+    st.page_link(TRANG_DIEU_KHOAN, label="Điều khoản & Quy chế")
     if duoc_vao_quan_tri():
         st.page_link(TRANG_QUAN_TRI, label="Quản trị kho")
     if auth.la_admin():
@@ -248,21 +251,23 @@ if auth.nguoi_dang_nhap():
         khung_nut = st.container(key="lgb-nut-can-bo")
     except TypeError:                      # Streamlit cũ chưa có tham số key
         khung_nut = st.container()
-    cot_nut = khung_nut.columns(3)
+    cot_nut = khung_nut.columns(4)
     with cot_nut[0]:
         st.page_link(TRANG_HOI_DAP, label="Trang hỏi đáp")
+    with cot_nut[1]:
+        st.page_link(TRANG_DIEU_KHOAN, label="Điều khoản & Quy chế")
     if duoc_vao_quan_tri():
-        with cot_nut[1]:
+        with cot_nut[2]:
             st.page_link(TRANG_QUAN_TRI, label="Quản trị kho")
     if auth.la_admin():
-        with cot_nut[2]:
+        with cot_nut[3]:
             st.page_link(TRANG_TAI_KHOAN, label="Vai trò CTV ngôn ngữ")
 
 st.html("<hr style='margin: 8px 0 15px 0;'>")
 
 
 # ==========ĐIỀU HƯỚNG============================
-trang = [TRANG_HOI_DAP, TRANG_GIOI_THIEU]
+trang = [TRANG_HOI_DAP, TRANG_GIOI_THIEU, TRANG_DIEU_KHOAN]
 if duoc_vao_quan_tri():
     trang.append(TRANG_QUAN_TRI)
 if auth.la_admin():
