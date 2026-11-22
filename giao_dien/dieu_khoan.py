@@ -1,290 +1,301 @@
 # -*- coding: utf-8 -*-
-"""Trang Điều khoản sử dụng & Quy chế vận hành Luật Gần Bản.
-
-Hỗ trợ cơ chế tải về – sửa thủ công – upload ghi đè tệp (.docx / .pdf)
-ngay trên giao diện web (chỉ mở khung upload khi cán bộ/admin đăng nhập).
-"""
-from __future__ import annotations
-
-import html
-import re
-from datetime import datetime
-from pathlib import Path
-
 import streamlit as st
-
+import base64
+import html
+from pathlib import Path
 from core import auth
 
-try:
-    from core.config import DATA as _DATA_DIR
-except ImportError:
-    _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+ROOT = Path(__file__).resolve().parent.parent
 
-THU_MUC_TAI_LIEU: Path = _DATA_DIR / "tai_lieu"
+# ==============================================================================
+# TỐI ƯU HÓA KHOẢNG TRẮNG & RESPONSIVE (ĐỒNG BỘ VỚI TRANG GIỚI THIỆU)
+# ==============================================================================
+st.markdown("""
+<style>
+    .block-container {
+        padding-top: 0.5rem !important;
+        padding-bottom: 3rem !important;
+        max-width: 900px !important;
+    }
 
-DANH_MUC_VAN_BAN: dict[str, dict[str, str]] = {
-    "dieu_khoan": {
-        "tieu_de": "📜 Điều khoản sử dụng công cụ Luật Gần Bản",
-        "ten_file": "dieu_khoan_su_dung",
-        "mac_dinh": """
-Chào mừng bà con đến với **Luật Gần Bản**!
-
-Luật Gần Bản là công cụ hỗ trợ tra cứu và tìm hiểu các thủ tục hành chính bằng giọng nói. Công cụ giúp người dân tiếp cận thông tin dễ hiểu hơn, giảm khó khăn khi tìm hiểu giấy tờ, trình tự và cách thực hiện thủ tục.
-
-### 1. Giới thiệu chung
-Công cụ hoạt động theo nguyên tắc **AI hỗ trợ, con người kiểm duyệt và người dùng chủ động xác nhận thông tin**. Luật Gần Bản không phải cơ quan nhà nước, tổ chức hành nghề luật sư hoặc tổ chức thực hiện trợ giúp pháp lý, và không thay thế cán bộ có thẩm quyền.
-
-### 2. Phạm vi và chức năng dịch vụ
-Hỗ trợ tiếp nhận câu hỏi bằng giọng nói hoặc văn bản, phân loại nhu cầu, tra cứu thông tin, giải thích quy định bằng ngôn ngữ đơn giản, phát âm thanh tiếng Việt và tiếng dân tộc (Mông, Tày), và kết nối hỗ trợ trực tiếp với cán bộ.
-
-### 3. Điều kiện truy cập và sử dụng
-Người dùng cần bảo đảm có khả năng nhận thức và thực hiện các thao tác cơ bản. Trường hợp người chưa đủ tuổi hoặc khó khăn trong nhận thức cần có sự hỗ trợ của cha mẹ hoặc người giám hộ.
-
-### 4. Quy định về việc sử dụng trí tuệ nhân tạo (AI)
-- **Vai trò của AI:** Câu trả lời do AI tạo ra là nội dung hỗ trợ tham khảo, không tự động trở thành văn bản tư vấn pháp lý chính thức hay quyết định hành chính.
-- **Nguyên tắc "Máy soạn, người duyệt":** Công chức tư pháp – hộ tịch kiểm duyệt, đối chiếu nội dung AI soạn với tài liệu gốc trước khi gắn nhãn xác nhận.
-- **Giới hạn độ chính xác:** Khi tài liệu gốc chưa rõ ràng, bà con nên bấm nút kết nối trực tiếp để hỏi cán bộ tư pháp – hộ tịch tại xã.
-
-### 5. Quyền và trách nhiệm của người dùng
-Người dùng được quyền biết rõ nội dung đang xem là do AI soạn hay đã được cán bộ kiểm duyệt, được xem căn cứ pháp lý gốc và yêu cầu hỗ trợ trực tiếp. Người dùng không cung cấp thông tin giả mạo hoặc sử dụng kết quả AI để giả mạo văn bản cơ quan nhà nước.
-
-### 6. Bảo vệ dữ liệu và quyền riêng tư
-Luật Gần Bản **không thu thập thông tin định danh cá nhân** và **không lưu trữ bản ghi âm** sau khi hoàn tất nhận dạng giọng nói. Bà con không nên nhập số căn cước, mật khẩu hoặc thông tin tài chính nhạy cảm.
-
-### 7. Sử dụng công cụ AI bên thứ ba
-Khi chuyển sang ChatGPT, Gemini hoặc công cụ AI bên ngoài, hệ thống sẽ hiển thị cảnh báo; nội dung từ công cụ bên ngoài chưa được Luật Gần Bản kiểm duyệt.
-
-### 8. Xác nhận của người dùng
-Khi lựa chọn nút **"Tôi đồng ý"** hoặc tiếp tục sử dụng Luật Gần Bản, bà con xác nhận đã đọc, hiểu và đồng ý tuân thủ các quy định sử dụng công cụ.
-""".strip(),
-    },
-    "bo_nhan": {
-        "tieu_de": "🏷️ Bộ nhãn Máy soạn – Người duyệt",
-        "ten_file": "bo_nhan_kiem_duyet",
-        "mac_dinh": """
-### Quy chuẩn phân loại nhãn nội dung trên Luật Gần Bản
-
-- **✅ Nhãn xanh (Cán bộ đã duyệt):** Nội dung hướng dẫn thủ tục đã được công chức tư pháp – hộ tịch đối chiếu trực tiếp với văn bản quy phạm pháp luật gốc và xác nhận phê duyệt.
-- **🤖 Nhãn vàng (Máy soạn – Tham khảo):** Bản diễn giải do trí tuệ nhân tạo (AI) tổng hợp tự động từ tài liệu gốc, đang chờ cán bộ kiểm duyệt thủ công.
-- **⚠️ Nhãn cảnh báo (Công cụ AI bên ngoài):** Nội dung sinh ra từ nền tảng bên thứ ba (ChatGPT, Gemini), chưa qua quy trình kiểm duyệt của Luật Gần Bản.
-""".strip(),
-    },
-    "canh_bao_ai": {
-        "tieu_de": "⚠️ Cảnh báo chuyển hướng sang công cụ AI khác (IS-20)",
-        "ten_file": "canh_bao_chuyen_ai",
-        "mac_dinh": """
-**1. Bảo mật dữ liệu cá nhân:** Không chia sẻ họ tên, số căn cước, số điện thoại, địa chỉ, hình ảnh giấy tờ, hồ sơ vụ việc lên công cụ AI bên ngoài. Nếu cần trao đổi, hãy thay thế bằng *"Người A"*, *"Xã B"*.
-
-**2. Độ chính xác của thông tin:** Nội dung do công cụ AI bên ngoài tạo ra **chưa được Luật Gần Bản kiểm duyệt**, có thể sai lệch hoặc thiếu sót so với quy định hiện hành.
-
-**3. Quyền riêng tư và bảo mật:** Công cụ AI bên ngoài hoạt động theo chính sách riêng của nhà cung cấp; Luật Gần Bản không kiểm soát việc lưu trữ dữ liệu trên nền tảng đó.
-
-**4. Trách nhiệm và phạm vi hỗ trợ:** Nội dung từ công cụ bên ngoài không mang nhãn xác nhận của Luật Gần Bản. Hãy tham khảo ý kiến cán bộ tư pháp – hộ tịch tại địa phương trước khi thực hiện.
-""".strip(),
-    },
-}
-
-_RE_MUC_LON = re.compile(r"^\d+\.\s+\S+")
-_RE_MUC_CON = re.compile(r"^\d+\.\d+\.\s+\S+")
-
-
-def _chuyen_trang_an_toan(duong_dan_trang: str) -> None:
-    """Chuyển trang tương thích mọi cấu hình Streamlit (st.navigation hoặc pages/)."""
-    try:
-        st.switch_page(duong_dan_trang)
-    except Exception:
-        st.session_state["trang_hien_tai"] = duong_dan_trang
-        st.rerun()
-
-
-def tim_file_van_ban(ma_muc: str) -> Path | None:
-    """Tìm tệp .docx hoặc .pdf hiện có của mục tương ứng trong data/tai_lieu/."""
-    if ma_muc not in DANH_MUC_VAN_BAN:
-        return None
-    THU_MUC_TAI_LIEU.mkdir(parents=True, exist_ok=True)
-    goc = DANH_MUC_VAN_BAN[ma_muc]["ten_file"]
-    for ext in (".docx", ".pdf"):
-        p = THU_MUC_TAI_LIEU / f"{goc}{ext}"
-        if p.is_file():
-            return p
-    return None
-
-
-def luu_file_thu_cong(ma_muc: str, uploaded_file) -> Path:
-    """Ghi đè bản mới lên data/tai_lieu/ một cách nguyên tử (atomic replace)."""
-    if ma_muc not in DANH_MUC_VAN_BAN:
-        raise ValueError(f"Mã mục không hợp lệ: {ma_muc}")
-    THU_MUC_TAI_LIEU.mkdir(parents=True, exist_ok=True)
-    goc = DANH_MUC_VAN_BAN[ma_muc]["ten_file"]
-    ext_moi = Path(uploaded_file.name).suffix.lower()
-    if ext_moi not in (".docx", ".pdf"):
-        raise ValueError("Chỉ chấp nhận tệp định dạng .docx hoặc .pdf")
-
-    dich = THU_MUC_TAI_LIEU / f"{goc}{ext_moi}"
-    tam = THU_MUC_TAI_LIEU / f".{goc}.tmp{ext_moi}"
-    tam.write_bytes(uploaded_file.getvalue())
-    tam.replace(dich)
-
-    for ext in (".docx", ".pdf"):
-        if ext != ext_moi:
-            cu = THU_MUC_TAI_LIEU / f"{goc}{ext}"
-            if cu.is_file():
-                cu.unlink(missing_ok=True)
-    return dich
-
-
-@st.cache_data(show_spinner=False, ttl=3600)
-def _trich_xuat_docx_cached(duong_dan_str: str, mtime_ns: int) -> str:
-    """Đọc nội dung .docx có cache theo (đường dẫn, mtime) để phản hồi tức thì."""
-    import docx
-
-    doc = docx.Document(duong_dan_str)
-    doan: list[str] = []
-    for p in doc.paragraphs:
-        raw = (p.text or "").strip()
-        if not raw:
-            continue
-        safe_text = html.escape(raw)
-        style_name = (p.style.name or "").lower() if p.style else ""
-        if "heading" in style_name or (_RE_MUC_LON.match(raw) and len(raw) <= 120):
-            doan.append(f"### {safe_text}")
-        elif _RE_MUC_CON.match(raw) and len(raw) <= 130:
-            doan.append(f"#### {safe_text}")
-        else:
-            doan.append(safe_text)
-    return "\n\n".join(doan)
-
-
-def doc_noi_dung_van_ban(ma_muc: str) -> str:
-    """Trả về nội dung Markdown sạch để hiển thị lên giao diện."""
-    if ma_muc not in DANH_MUC_VAN_BAN:
-        return ""
-    fp = tim_file_van_ban(ma_muc)
-    if fp is None:
-        return DANH_MUC_VAN_BAN[ma_muc]["mac_dinh"]
-    if fp.suffix.lower() == ".pdf":
-        return (
-            "📎 Văn bản hiện đang lưu dưới định dạng **PDF**. "
-            "Bà con vui lòng bấm nút **⬇️ Tải bản gốc (.pdf)** ở phía trên để xem đầy đủ."
-        )
-    try:
-        noi_dung = _trich_xuat_docx_cached(str(fp), fp.stat().st_mtime_ns)
-        return noi_dung if noi_dung else DANH_MUC_VAN_BAN[ma_muc]["mac_dinh"]
-    except ImportError:
-        return (
-            "⚠️ Máy chủ chưa cài thư viện đọc trực tiếp file Word (`python-docx`). "
-            "Bà con vui lòng bấm nút **⬇️ Tải bản gốc (.docx)** ở phía trên để xem."
-        )
-    except Exception as exc:
-        return f"⚠️ Không đọc được bản xem trước ({html.escape(str(exc))}). Vui lòng tải tệp về máy để xem."
-
-
-def render_trang_dieu_khoan() -> None:
-    """Hàm render chính của trang Điều khoản sử dụng & Quy chế vận hành."""
-    st.markdown(
-        """
-        <style>
-        .lgb-dk-title {
-            text-align: center;
-            color: #0B4F9E;
-            font-family: 'Times New Roman', Times, serif;
-            font-weight: 700;
-            margin-bottom: 4px;
+    @media screen and (max-width: 640px) {
+        .block-container {
+            padding-top: 0.3rem !important;
+            padding-left: 0.8rem !important;
+            padding-right: 0.8rem !important;
         }
-        .lgb-dk-sub {
-            text-align: center;
-            color: #4A5568;
-            font-family: 'Times New Roman', Times, serif;
-            font-style: italic;
-            margin-bottom: 18px;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    }
 
-    col_back, _ = st.columns([1.8, 5.2])
-    with col_back:
-        if st.button("⬅️ Quay lại tra cứu", key="dk_btn_quay_lai", use_container_width=True):
-            _chuyen_trang_an_toan("giao_dien/cong_dan.py")
+    [data-testid="stPageLink"] {
+        background-color: #fcfcfc !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        padding: 6px 14px !important;
+        transition: all 0.25s ease-in-out !important;
+        width: fit-content !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
+    }
+    [data-testid="stPageLink"]:hover {
+        background-color: #f1f5f9 !important;
+        border-color: #cbd5e1 !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important;
+        transform: translateY(-1px);
+    }
+    [data-testid="stPageLink"] span {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 15px !important;
+        color: #003366 !important;
+        font-weight: 600 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-    st.markdown(
-        '<h1 class="lgb-dk-title">📜 ĐIỀU KHOẢN SỬ DỤNG & QUY CHẾ VẬN HÀNH</h1>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<p class="lgb-dk-sub">Luật Gần Bản · Nguyên tắc Máy soạn – Người duyệt · Bảo vệ quyền riêng tư người dân</p>',
-        unsafe_allow_html=True,
-    )
+st.page_link("giao_dien/cong_dan.py", label="Quay lại trang Hỏi đáp chính", icon="⬅️")
+st.markdown("<hr style='margin: 8px 0 15px 0;'>", unsafe_allow_html=True)
 
-    muc_chon = st.selectbox(
-        "📑 Chọn văn bản cần xem hoặc tải về:",
-        options=list(DANH_MUC_VAN_BAN.keys()),
-        format_func=lambda k: DANH_MUC_VAN_BAN[k]["tieu_de"],
-        key="dk_select_van_ban",
-    )
+# ==============================================================================
+# CƠ CHẾ LƯU TRỮ FILE CỨNG (.md, .txt, .docx)
+# ==============================================================================
+DATA_DIR = ROOT / "data"
+DATA_FILE = DATA_DIR / "dieu_khoan.md"
 
-    fp_hien_tai = tim_file_van_ban(muc_chon)
-    c_info, c_dl = st.columns([4.2, 2.0])
-    with c_info:
-        if fp_hien_tai:
-            tg = datetime.fromtimestamp(fp_hien_tai.stat().st_mtime).strftime("%d/%m/%Y %H:%M")
-            st.caption(f"📅 Cập nhật lần cuối: **{tg}** · Tệp gốc: `{fp_hien_tai.name}`")
-        else:
-            st.caption("ℹ️ Đang hiển thị bản chuẩn mặc định (cán bộ có thể tải tệp `.docx` / `.pdf` lên máy chủ).")
 
-    with c_dl:
-        if fp_hien_tai:
-            ext = fp_hien_tai.suffix.lower()
-            mime = (
-                "application/pdf"
-                if ext == ".pdf"
-                else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-            st.download_button(
-                f"⬇️ Tải bản gốc ({ext})",
-                data=fp_hien_tai.read_bytes(),
-                file_name=fp_hien_tai.name,
-                mime=mime,
-                key=f"dk_dl_{muc_chon}",
-                use_container_width=True,
-            )
-
-    # Khung upload ghi đè thủ công (chỉ hiển thị khi cán bộ / admin đã đăng nhập)
-    la_can_bo = False
+def load_terms_content() -> str:
+    """Đọc nội dung điều khoản từ file cứng đã lưu."""
     try:
-        la_can_bo = bool(auth.nguoi_dang_nhap())
-    except Exception:
-        la_can_bo = False
+        if DATA_FILE.exists():
+            content = DATA_FILE.read_text(encoding="utf-8")
+            if content.strip():
+                return content
+    except Exception as e:
+        st.error(f"Lỗi đọc file: {e}")
+    return ""
 
-    if la_can_bo:
-        with st.container(border=True):
-            st.markdown(f"**🛠️ Cán bộ cập nhật thủ công: {DANH_MUC_VAN_BAN[muc_chon]['tieu_de']}**")
-            st.caption("Tải bản hiện tại về sửa trên máy tính, sau đó chọn tệp mới tại đây để ghi đè:")
-            f_moi = st.file_uploader(
-                "Chọn tệp Word (.docx) hoặc PDF (.pdf) mới",
-                type=["docx", "pdf"],
-                key=f"dk_up_{muc_chon}",
-            )
-            if f_moi is not None:
-                if st.button("💾 Ghi đè bản mới lên hệ thống", type="primary", key=f"dk_save_{muc_chon}"):
+
+def save_terms_content(content: str) -> bool:
+    """Lưu vĩnh viễn nội dung điều khoản vào file cứng."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        DATA_FILE.write_text(content, encoding="utf-8")
+        return True
+    except Exception as e:
+        st.error(f"Lỗi khi lưu tệp hệ thống: {e}")
+        return False
+
+
+def docx_to_exact_html(docx_file) -> str:
+    """Chuyển đổi file Word (.docx) thành HTML giữ nguyên định dạng gốc."""
+    try:
+        import docx
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        doc = docx.Document(docx_file)
+        html_parts = []
+
+        for p in doc.paragraphs:
+            align_style = "text-align: left;"
+            if p.alignment == WD_ALIGN_PARAGRAPH.CENTER:
+                align_style = "text-align: center;"
+            elif p.alignment == WD_ALIGN_PARAGRAPH.RIGHT:
+                align_style = "text-align: right;"
+            elif p.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY:
+                align_style = "text-align: justify;"
+
+            p_content = []
+            for run in p.runs:
+                text = run.text
+                if not text:
                     try:
-                        luu_file_thu_cong(muc_chon, f_moi)
-                        _trich_xuat_docx_cached.clear()
-                        st.success("✅ Đã cập nhật tệp mới thành công!")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"❌ Lỗi khi lưu tệp: {exc}")
+                        drawings = run._r.xpath('.//a:blip')
+                        for blip in drawings:
+                            embed = blip.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed')
+                            if embed and embed in doc.part.related_parts:
+                                image_part = doc.part.related_parts[embed]
+                                image_bytes = image_part.blob
+                                b64_img = base64.b64encode(image_bytes).decode('utf-8')
+                                p_content.append(
+                                    f'<div style="text-align: center;"><img src="data:image/png;base64,{b64_img}" '
+                                    f'style="max-width: 100%; height: auto; margin: 20px auto; border-radius: 6px; '
+                                    f'box-shadow: 0 4px 12px rgba(0,0,0,0.15);" /></div>'
+                                )
+                    except Exception:
+                        pass
+                    continue
 
-    with st.container(border=True):
-        st.markdown(doc_noi_dung_van_ban(muc_chon))
+                safe_text = html.escape(text)
+                style_runs = []
+                if run.bold:
+                    safe_text = f"<b>{safe_text}</b>"
+                if run.italic:
+                    safe_text = f"<i>{safe_text}</i>"
+                if run.font.color and run.font.color.rgb:
+                    rgb = run.font.color.rgb
+                    hex_color = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+                    style_runs.append(f"color: {hex_color};")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-    _, col_ok, _ = st.columns([2, 2.6, 2])
-    with col_ok:
-        if st.button("✅ Tôi đã đọc và đồng ý", type="primary", key="dk_btn_dong_y", use_container_width=True):
-            _chuyen_trang_an_toan("giao_dien/cong_dan.py")
+                if style_runs:
+                    style_str = " ".join(style_runs)
+                    safe_text = f'<span style="{style_str}">{safe_text}</span>'
+
+                p_content.append(safe_text)
+
+            full_p_text = "".join(p_content)
+            if full_p_text.strip() or '<img' in full_p_text:
+                tag = "p"
+                style_name = p.style.name.lower()
+                if "heading 1" in style_name or "title" in style_name:
+                    tag = "h2"
+                elif "heading 2" in style_name:
+                    tag = "h3"
+
+                html_parts.append(f'<{tag} style="{align_style} margin-bottom: 10px;">{full_p_text}</{tag}>')
+
+        for table in doc.tables:
+            table_html = ['<div style="overflow-x: auto; margin: 15px 0;"><table style="border-collapse: collapse; width: 100%;">']
+            for row in table.rows:
+                table_html.append('<tr>')
+                for cell in row.cells:
+                    table_html.append(f'<td style="border: 1px solid #cccccc; padding: 8px 12px; text-align: left;">{html.escape(cell.text)}</td>')
+                table_html.append('</tr>')
+            table_html.append('</table></div>')
+            html_parts.append("".join(table_html))
+
+        return "\n".join(html_parts)
+    except Exception as e:
+        st.error(f"Không thể đọc file Word: {e}")
+        return ""
 
 
-# Thực thi trực tiếp khi chạy như một trang độc lập của Streamlit
-render_trang_dieu_khoan()
+if "terms_content" not in st.session_state:
+    st.session_state["terms_content"] = load_terms_content()
+
+# ==============================================================================
+# PHÂN QUYỀN CÁN BỘ & ADMIN: TẢI FILE LÊN HOẶC SỬA THỦ CÔNG
+# ==============================================================================
+u = auth.nguoi_dang_nhap()
+co_quyen_quan_tri = bool(u and u.get("vai_tro") in ("admin", "can_bo"))
+
+if co_quyen_quan_tri:
+    vai_tro_hien_thi = "Quản trị viên (Admin)" if u.get("vai_tro") == "admin" else "Cán bộ chuyên môn"
+    with st.expander(
+        "⚙️ QUẢN LÝ ĐIỀU KHOẢN SỬ DỤNG (Tải file lên / Sửa thủ công)",
+        expanded=not bool(st.session_state["terms_content"]),
+    ):
+        st.info(f"Đang đăng nhập với quyền **{vai_tro_hien_thi}**. Mọi cập nhật sẽ được lưu vĩnh viễn và hiển thị ngay cho công dân.")
+
+        tab_file, tab_soan = st.tabs(["📁 Tải file lên (.md, .txt, .docx)", "✍️ Sửa thủ công"])
+
+        with tab_file:
+            st.caption("Tải lên file Markdown, Text hoặc Word (.docx). Hệ thống tự động bóc tách giữ nguyên định dạng gốc.")
+            uploaded_file = st.file_uploader(
+                "Chọn file điều khoản tải lên",
+                type=["md", "txt", "docx"],
+                key="upload_terms_file",
+            )
+
+            if uploaded_file is not None:
+                file_content = ""
+                if uploaded_file.name.endswith(".docx"):
+                    file_content = docx_to_exact_html(uploaded_file)
+                else:
+                    try:
+                        file_content = uploaded_file.read().decode("utf-8")
+                    except Exception:
+                        try:
+                            file_content = uploaded_file.read().decode("latin-1")
+                        except Exception as e:
+                            st.error(f"Lỗi giải mã file: {e}")
+
+                if file_content:
+                    st.caption("Xem trước bố cục tài liệu:")
+                    preview_html = f"""
+                    <div style="background: #ffffff; color: #000000; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); font-family: 'Times New Roman', Times, serif; line-height: 1.7; max-height: 350px; overflow-y: auto; margin-bottom: 15px; box-sizing: border-box;">
+                        {file_content}
+                    </div>
+                    """
+                    st.markdown(preview_html, unsafe_allow_html=True)
+
+                    if st.button("🚀 Xác nhận cập nhật Điều khoản từ file", type="primary", use_container_width=True):
+                        if save_terms_content(file_content):
+                            st.session_state["terms_content"] = file_content
+                            st.success("Đã cập nhật Điều khoản sử dụng từ file thành công!")
+                            st.rerun()
+
+        with tab_soan:
+            st.caption("Chỉnh sửa trực tiếp nội dung Điều khoản sử dụng (hỗ trợ HTML hoặc Markdown).")
+            updated_content = st.text_area(
+                "Nội dung Điều khoản sử dụng:",
+                value=st.session_state["terms_content"],
+                height=320,
+                key="manual_edit_terms",
+            )
+            if st.button("💾 Lưu nội dung sửa thủ công", type="primary", use_container_width=True):
+                if save_terms_content(updated_content):
+                    st.session_state["terms_content"] = updated_content
+                    st.success("Đã lưu thay đổi thủ công thành công!")
+                    st.rerun()
+
+    st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+
+# ==============================================================================
+# HIỂN THỊ NỘI DUNG ĐIỀU KHOẢN (CÔNG DÂN CHỈ XEM, KHÔNG CÓ QUYỀN CHỈNH SỬA)
+# ==============================================================================
+display_content = st.session_state["terms_content"]
+
+if not display_content.strip():
+    st.info("📄 Chưa có nội dung Điều khoản sử dụng. Cán bộ hoặc Quản trị viên vui lòng đăng nhập để tải file lên hoặc nhập nội dung.")
+else:
+    document_html = f"""
+    <div style="
+        background: #ffffff;
+        color: #111111;
+        padding: clamp(15px, 3.5vw, 45px);
+        margin: 5px auto;
+        max-width: 900px;
+        width: 100%;
+        border-radius: 6px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        font-family: 'Times New Roman', Times, serif;
+        line-height: 1.7;
+        font-size: clamp(15px, 1.8vw, 17px);
+        box-sizing: border-box;
+    ">
+        <style>
+            img {{
+                max-width: 100% !important;
+                height: auto !important;
+                display: block !important;
+                margin: 20px auto !important;
+                border-radius: 6px !important;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important;
+            }}
+            h2, h3, h4 {{
+                color: #003366 !important;
+                font-family: 'Times New Roman', Times, serif !important;
+                font-weight: bold !important;
+                margin-top: 20px !important;
+                margin-bottom: 10px !important;
+                word-wrap: break-word;
+            }}
+            p, li {{
+                margin-bottom: 12px !important;
+                word-wrap: break-word;
+            }}
+            table {{
+                border-collapse: collapse;
+                width: 100%;
+                margin: 15px 0;
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+            }}
+            th, td {{
+                border: 1px solid #cccccc;
+                padding: 8px 12px;
+                text-align: left;
+            }}
+        </style>
+        {display_content}
+    </div>
+    """
+    st.markdown(document_html, unsafe_allow_html=True)
