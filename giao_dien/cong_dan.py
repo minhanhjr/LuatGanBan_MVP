@@ -111,12 +111,13 @@ def _ghi_phan_hoi_khong_dinh_danh(loai: str, kq: dict) -> None:
 
 
 # ==========================================================================
-# ĐIỀU HƯỚNG TRANG GIỚI THIỆU
+# ĐIỀU HƯỚNG TRANG GIỚI THIỆU & ĐIỀU KHOẢN SỬ DỤNG
 # ==========================================================================
-col_sp1, col_btn_gt, col_sp2 = st.columns([3, 1.4, 3])
+col_sp1, col_btn_gt, col_btn_dk, col_sp2 = st.columns([1.4, 2.1, 2.2, 1.4])
 with col_btn_gt:
-    if st.button("📖 Giới thiệu dự án", use_container_width=True, help="Xem thông tin chi tiết và ý nghĩa dự án"):
-        st.switch_page("giao_dien/gioi_thieu.py")
+    st.page_link("giao_dien/gioi_thieu.py", label="Giới thiệu dự án", icon="📖")
+with col_btn_dk:
+    st.page_link("giao_dien/dieu_khoan.py", label="Điều khoản sử dụng", icon="📜")
 
 st.markdown("---")
 
@@ -683,7 +684,6 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
     with t_chon:
         st.caption("Chọn trực tiếp — trả lời ngay, dùng khi phòng ồn hoặc mạng yếu.")
         
-        # Tra cứu thủ tục từ CSDL PostgreSQL qua Hộp chọn thả xuống (Drop-down Selectbox)
         if lay_danh_sach_thu_tuc_cho_nguoi_dan:
             tu_khoa_db = st.text_input("🔍 Gõ từ khóa để lọc danh sách (nếu cần):", "", key="tim_db_cong_dan")
             ds_db = lay_danh_sach_thu_tuc_cho_nguoi_dan(tu_khoa_db.strip())
@@ -718,6 +718,14 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+st.markdown(
+    '<div style="text-align:center;font-size:13px;color:#555;margin-top:14px;">'
+    'Khi tiếp tục sử dụng <b>Luật Gần Bản</b>, bà con xác nhận đã đọc và đồng ý với '
+    '<b>Điều khoản sử dụng</b> (AI hỗ trợ tham khảo, không thay thế cơ quan nhà nước).'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
 
 # ==========================================================================
 # 5. THANH BÊN — chỉ dành cho cán bộ
@@ -737,4 +745,8 @@ if auth.nguoi_dang_nhap():
         if ss.danh_sach_yeu_cau:
             st.markdown("### Phiếu chờ cán bộ")
             for p in reversed(ss.danh_sach_yeu_cau[-5:]):
-                st.caption(f"{p['thoi_gian']} — {p['van_de']}")   
+                st.caption(f"{p['thoi_gian']} — {p['van_de']}")
+'''
+compile(cong_dan_full, "giao_dien/cong_dan.py", "exec")
+print("Verified full code OK")
+}
