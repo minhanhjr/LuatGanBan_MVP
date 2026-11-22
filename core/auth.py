@@ -1,13 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Vai trò CTV ngôn ngữ & phân quyền.
+"""Quản lý tài khoản & phân quyền.
 
 Lưu ở `data/users.json`. Mật khẩu KHÔNG lưu dạng chữ thường: băm bằng
 PBKDF2-HMAC-SHA256 (200.000 vòng, mỗi tài khoản một muối riêng) — chỉ dùng thư
 viện chuẩn của Python, không thêm phụ thuộc.
-
-MỨC BẢO MẬT: đủ cho hệ thống nội bộ chạy trong mạng xã / máy cán bộ. Nếu sau này
-đưa app lên Internet công khai thì phải thay bằng đăng nhập thật (OAuth, hoặc
-`st.login` của Streamlit) và bắt buộc đổi mật khẩu mặc định.
 """
 from __future__ import annotations
 
@@ -22,6 +18,17 @@ from core.config import DATA
 USERS_FILE = DATA / "users.json"
 VONG_LAP = 200_000
 
+# ------------------------------------------------------------------ Vai trò
+VAI_TRO = {
+    "admin":      "Quản trị viên (Admin)",
+    "can_bo":     "Cán bộ",
+    "giang_vien": "Giảng viên",
+    "ctv":        "CTV ngôn ngữ",
+}
+
+def nhan_vai_tro(vai_tro: str) -> str:
+    return VAI_TRO.get(vai_tro, vai_tro or "Cán bộ")
+
 # ------------------------------------------------------------------ Quyền
 QUYEN = {
     "kho_thu_tuc":      "Kho thủ tục — xem, sửa danh mục, làm nóng câu trả lời",
@@ -35,10 +42,10 @@ TAT_CA_QUYEN = list(QUYEN.keys())
 
 # Tài khoản khởi tạo lần đầu (mật khẩu sẽ được băm ngay, file gốc không lưu chữ thường)
 MAC_DINH = [
-    ("admin_Minh", "admin",        "admin",  "Minh — quản trị hệ thống"),
-    ("APAG_han",   "123123",       "can_bo", "CTV ngôn ngữ Hân"),
-    ("APAG_thai",  "123123",       "can_bo", "CTV ngôn ngữ Thái"),
-    ("APAG_gv",    "giangvien123", "can_bo", "Giảng viên hướng dẫn"),
+    ("admin_Minh", "admin",        "admin",      "Minh — quản trị hệ thống"),
+    ("APAG_han",   "123123",       "ctv",        "CTV ngôn ngữ Hân"),
+    ("APAG_thai",  "123123",       "ctv",        "CTV ngôn ngữ Thái"),
+    ("APAG_gv",    "giangvien123", "giang_vien", "Giảng viên hướng dẫn"),
 ]
 
 
@@ -51,10 +58,11 @@ def bam(mat_khau: str, muoi: str) -> str:
 def _tao_ban_ghi(ten: str, mat_khau: str, vai_tro: str, mo_ta: str,
                  quyen: list[str] | None = None) -> dict:
     muoi = secrets.token_hex(16)
+    vt = vai_tro if vai_tro in VAI_TRO else "can_bo"
     return {
         "ten_dang_nhap": ten,
         "mo_ta": mo_ta,
-        "vai_tro": vai_tro,                       # 'admin' | 'can_bo' (hiểu là CTV ngôn ngữ)
+        "vai_tro": vt,
         "quyen": TAT_CA_QUYEN if quyen is None else quyen,
         "muoi": muoi,
         "bam": bam(mat_khau, muoi),
@@ -137,7 +145,7 @@ def cap_nhat_quyen(ten: str, quyen: list[str], vai_tro: str | None = None,
     if ten not in users:
         return False, "Không tìm thấy tài khoản."
     users[ten]["quyen"] = [q for q in quyen if q in QUYEN]
-    if vai_tro is not None:
+    if vai_tro is not None and vai_tro in VAI_TRO:
         users[ten]["vai_tro"] = vai_tro
     if mo_ta is not None:
         users[ten]["mo_ta"] = mo_ta
