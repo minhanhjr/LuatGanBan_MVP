@@ -718,15 +718,6 @@ with st.expander("⌨️ Không nói được? Gõ chữ hoặc chọn từ danh
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown(
-    '<div style="text-align:center;font-size:13px;color:#555;margin-top:14px;">'
-    'Khi tiếp tục sử dụng <b>Luật Gần Bản</b>, bà con xác nhận đã đọc và đồng ý với '
-    '<b>Điều khoản sử dụng</b> (AI hỗ trợ tham khảo, không thay thế cơ quan nhà nước).'
-    '</div>',
-    unsafe_allow_html=True,
-)
-
-
 # ==========================================================================
 # 5. THANH BÊN — chỉ dành cho cán bộ
 # ==========================================================================
