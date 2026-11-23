@@ -28,11 +28,12 @@ st.set_page_config(page_title="LUẬT GẦN BẢN - Chuyển đổi số: Không
 # SỬ DỤNG st.html() thay vì st.markdown() để bỏ qua bộ phân tích Markdown, tăng tốc độ render UI
 st.html("""
 <style>
-  /* ÉP THANH TIÊU ĐỀ LUÔN NẰM TRÊN MỘT HÀNG TRÊN MỌI THIẾT BỊ */
+  /* Chỉ giữ tiêu đề và nút đăng nhập trên cùng hàng. Các nhóm cột khác
+     được Streamlit tự xếp lại khi màn hình nhỏ. */
   @media (max-width: 768px) {
-      div[data-testid="stHorizontalBlock"] { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; width: 100% !important; }
-      div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] { flex: 1 1 auto !important; min-width: 0 !important; width: auto !important; }
-      div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child { flex: 0 0 auto !important; width: auto !important; }
+      .st-key-lgb-tieu-de div[data-testid="stHorizontalBlock"] { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; width: 100% !important; }
+      .st-key-lgb-tieu-de div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] { flex: 1 1 auto !important; min-width: 0 !important; width: auto !important; }
+      .st-key-lgb-tieu-de div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"]:last-child { flex: 0 0 auto !important; width: auto !important; }
   }
 
   /* NÚT "GIỚI THIỆU DỰ ÁN" & "ĐIỀU KHOẢN SỬ DỤNG": CĂN GIỮA TUYỆT ĐỐI, VIÊN THUỐC SANG TRỌNG */
@@ -89,6 +90,39 @@ st.html("""
   .the-tra-loi b { color: #003366; }
   div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px; }
   .lgb-phu [data-testid="stExpander"] summary p { font-size: 13px !important; color: #777 !important; }
+
+  /* Căn giữa hai liên kết ở trang người dân; không ép các cột khác nằm ngang. */
+  .st-key-lgb-lienket-nguoidan { max-width: 500px; margin: 0 auto !important; }
+  .st-key-lgb-lienket-nguoidan [data-testid="stPageLink"] { width: 100% !important; }
+  .st-key-lgb-lienket-nguoidan [data-testid="stPageLink-NavLink"] { justify-content: center !important; }
+  .st-key-lgb-meo-bang { display: none; }
+
+  @media (max-width: 640px) {
+    .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
+    .block-container h1 { font-size: 2rem !important; line-height: 1.2 !important; overflow-wrap: anywhere; }
+    [data-testid="stPageLink"] { min-width: 0 !important; max-width: 100% !important; }
+    [data-testid="stPageLink"] span { white-space: normal !important; overflow-wrap: anywhere; }
+    .st-key-lgb-nut-can-bo [data-testid="stPageLink"] { width: 100% !important; min-height: 44px; }
+    .st-key-lgb-meo-bang { display: block; }
+
+    /* Chỉ số: hai ô mỗi hàng, nhãn được xuống dòng thay vì bị cắt. */
+    .st-key-lgb-kho-metrics [data-testid="stHorizontalBlock"],
+    .st-key-lgb-phan-hoi-metrics [data-testid="stHorizontalBlock"] {
+      display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 0.75rem !important;
+    }
+    .st-key-lgb-kho-metrics [data-testid="stColumn"],
+    .st-key-lgb-phan-hoi-metrics [data-testid="stColumn"] { width: 100% !important; min-width: 0 !important; }
+    .st-key-lgb-kho-metrics [data-testid="stMetricLabel"],
+    .st-key-lgb-phan-hoi-metrics [data-testid="stMetricLabel"] { overflow: visible !important; }
+    .st-key-lgb-kho-metrics [data-testid="stMetricLabel"] p,
+    .st-key-lgb-phan-hoi-metrics [data-testid="stMetricLabel"] p { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; }
+
+    /* Các thẻ quản trị, điều khoản và lựa chọn tiếng được phép xuống dòng. */
+    [data-testid="stTabs"] [role="tablist"] { flex-wrap: wrap !important; overflow: visible !important; height: auto !important; }
+    [data-testid="stTabs"] [role="tab"] { white-space: normal !important; height: auto !important; min-height: 44px; }
+    .st-key-lgb-tieng-gioi-thieu [role="radiogroup"] { display: flex !important; flex-wrap: wrap !important; overflow: visible !important; gap: 0.35rem; }
+    .st-key-lgb-tieng-gioi-thieu [role="radio"] { flex: 1 1 7rem; min-height: 44px; padding: 0.5rem 0.7rem !important; white-space: normal !important; }
+  }
 </style>
 """)
 
@@ -207,7 +241,8 @@ def nut_chuyen_trang_can_bo() -> None:
 auth.khoi_tao_mac_dinh()  # Khởi tạo tài khoản mặc định lần đầu
 
 # Tỷ lệ cột: Dồn diện tích cho tiêu đề, nút đăng nhập thu gọn bên phải
-col_tieu_de, col_dang_nhap = st.columns([7, 1], vertical_alignment="center")
+khung_tieu_de = st.container(key="lgb-tieu-de")
+col_tieu_de, col_dang_nhap = khung_tieu_de.columns([7, 1], vertical_alignment="center")
 
 with col_tieu_de:
     header()
