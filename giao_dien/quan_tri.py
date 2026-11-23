@@ -108,17 +108,20 @@ if "kho_thu_tuc" in tabs:
             
         df = pd.DataFrame(rows)
 
-        c = st.columns(4)
-        c[0].metric("Tổng Thủ tục trong DB", len(df))
-        c[1].metric("Đã duyệt (Hiện trên web)", so_da_duyet)
-        c[2].metric("Chờ duyệt", len(df) - so_da_duyet - so_an)
-        c[3].metric("Từ chối (Ẩn)", so_an)
+        with st.container(key="lgb-kho-metrics"):
+            c = st.columns(4)
+            c[0].metric("Tổng Thủ tục trong DB", len(df))
+            c[1].metric("Đã duyệt (Hiện trên web)", so_da_duyet)
+            c[2].metric("Chờ duyệt", len(df) - so_da_duyet - so_an)
+            c[3].metric("Từ chối (Ẩn)", so_an)
 
         st.divider()
         st.subheader("Cán bộ: Sửa nội dung (Lưu nháp / Chờ duyệt)")
         st.caption("Chỉnh sửa nội dung tại đây. Lưu ý: Mọi sửa đổi sẽ bị chuyển thành trạng thái **'Chờ duyệt'** "
                    "và bài viết sẽ tạm ẩn khỏi người dân cho đến khi Admin duyệt.")
 
+        with st.container(key="lgb-meo-bang"):
+            st.caption("Trên điện thoại, vuốt bảng sang ngang để xem các cột còn lại.")
         df_sua = st.data_editor(
             df, use_container_width=True, hide_index=True, key="ed_kho",
             column_config={
@@ -345,12 +348,13 @@ if "phan_hoi" in tabs:
             tong_dg = so_hieu + so_chua_hieu
             ty_le_chua_hieu = f"{(so_chua_hieu / tong_dg * 100):.1f}%" if tong_dg > 0 else "—"
 
-            m1, m2, m3, m4, m5 = st.columns(5)
-            m1.metric("Tổng lượt ghi nhận", len(df_log))
-            m2.metric("👍 Hiểu được", so_hieu)
-            m3.metric("👎 Chưa hiểu", so_chua_hieu)
-            m4.metric("Tỷ lệ chưa hiểu (M2)", ty_le_chua_hieu)
-            m5.metric("🙋 Cần cán bộ / Messenger", so_can_cb)
+            with st.container(key="lgb-phan-hoi-metrics"):
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Tổng lượt ghi nhận", len(df_log))
+                m2.metric("👍 Hiểu được", so_hieu)
+                m3.metric("👎 Chưa hiểu", so_chua_hieu)
+                m4.metric("Tỷ lệ chưa hiểu (M2)", ty_le_chua_hieu)
+                m5.metric("🙋 Cần cán bộ / Messenger", so_can_cb)
 
             st.divider()
 
