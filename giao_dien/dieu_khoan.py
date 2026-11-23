@@ -4,6 +4,7 @@ import base64
 import html
 from pathlib import Path
 from core import auth
+from giao_dien.van_ban_ui import hien_thi_van_ban
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -245,57 +246,4 @@ display_content = st.session_state["terms_content"]
 if not display_content.strip():
     st.info("📄 Chưa có nội dung Điều khoản sử dụng. Cán bộ hoặc Quản trị viên vui lòng đăng nhập để tải file lên hoặc nhập nội dung.")
 else:
-    document_html = f"""
-    <div style="
-        background: #ffffff;
-        color: #111111;
-        padding: clamp(15px, 3.5vw, 45px);
-        margin: 5px auto;
-        max-width: 900px;
-        width: 100%;
-        border-radius: 6px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-        font-family: 'Times New Roman', Times, serif;
-        line-height: 1.7;
-        font-size: clamp(15px, 1.8vw, 17px);
-        box-sizing: border-box;
-    ">
-        <style>
-            img {{
-                max-width: 100% !important;
-                height: auto !important;
-                display: block !important;
-                margin: 20px auto !important;
-                border-radius: 6px !important;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.12) !important;
-            }}
-            h2, h3, h4 {{
-                color: #003366 !important;
-                font-family: 'Times New Roman', Times, serif !important;
-                font-weight: bold !important;
-                margin-top: 20px !important;
-                margin-bottom: 10px !important;
-                word-wrap: break-word;
-            }}
-            p, li {{
-                margin-bottom: 12px !important;
-                word-wrap: break-word;
-            }}
-            table {{
-                border-collapse: collapse;
-                width: 100%;
-                margin: 15px 0;
-                display: block;
-                overflow-x: auto;
-                white-space: nowrap;
-            }}
-            th, td {{
-                border: 1px solid #cccccc;
-                padding: 8px 12px;
-                text-align: left;
-            }}
-        </style>
-        {display_content}
-    </div>
-    """
-    st.markdown(document_html, unsafe_allow_html=True)
+    hien_thi_van_ban(display_content, key="lgb-van-ban-dieu-khoan")
