@@ -64,19 +64,19 @@ st.html("""
   .lgb-ten { color: #003366; font-size: 15px; font-weight: bold; letter-spacing: .2px; white-space: nowrap; }
   .lgb-slogan { color: #777; font-size: 10.5px; font-style: italic; border-left: 1px solid #ccc; padding-left: 6px; margin-left: 2px; }
   @media (max-width: 640px) {
-      /* Giữ logo và tên ở dòng đầu; slogan xuống dòng để không bị ẩn. */
+      /* Giữ slogan ở một dòng bên dưới tên trên màn hình điện thoại. */
       .lgb-header { display: flex; flex-wrap: wrap; row-gap: 2px; min-width: 0; }
       .lgb-ten { font-size: 14px; }
       .lgb-slogan {
           display: block;
           flex: 0 0 100%;
           border-left: 0;
-          padding-left: 32px;
+          padding-left: clamp(0px, calc(25vw - 72px), 20px);
           margin-left: 0;
-          font-size: 11px;
+          font-size: clamp(8px, 2.75vw, 10.5px);
           line-height: 1.3;
-          white-space: normal;
-          overflow-wrap: anywhere;
+          white-space: nowrap;
+          overflow-wrap: normal;
       }
   }
 
