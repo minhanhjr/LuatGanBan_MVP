@@ -63,7 +63,22 @@ st.html("""
   .lgb-header img { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; }
   .lgb-ten { color: #003366; font-size: 15px; font-weight: bold; letter-spacing: .2px; white-space: nowrap; }
   .lgb-slogan { color: #777; font-size: 10.5px; font-style: italic; border-left: 1px solid #ccc; padding-left: 6px; margin-left: 2px; }
-  @media (max-width: 640px) { .lgb-slogan { display: none; } .lgb-ten { font-size: 14px; } }
+  @media (max-width: 640px) {
+      /* Giữ logo và tên ở dòng đầu; slogan xuống dòng để không bị ẩn. */
+      .lgb-header { display: flex; flex-wrap: wrap; row-gap: 2px; min-width: 0; }
+      .lgb-ten { font-size: 14px; }
+      .lgb-slogan {
+          display: block;
+          flex: 0 0 100%;
+          border-left: 0;
+          padding-left: 32px;
+          margin-left: 0;
+          font-size: 11px;
+          line-height: 1.3;
+          white-space: normal;
+          overflow-wrap: anywhere;
+      }
+  }
 
   /* Khu ghi âm - Nút micro */
   [data-testid="stAudioInput"] { display: flex !important; justify-content: center !important; height: auto !important; min-height: 240px !important; overflow: visible !important; max-width: 560px; margin: 0 auto !important; }
