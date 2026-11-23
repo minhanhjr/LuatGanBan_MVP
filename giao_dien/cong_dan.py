@@ -113,7 +113,8 @@ def _ghi_phan_hoi_khong_dinh_danh(loai: str, kq: dict) -> None:
 # ==========================================================================
 # ĐIỀU HƯỚNG TRANG GIỚI THIỆU & ĐIỀU KHOẢN SỬ DỤNG
 # ==========================================================================
-col_sp1, col_btn_gt, col_btn_dk, col_sp2 = st.columns([1.4, 2.1, 2.2, 1.4])
+khung_lienket = st.container(key="lgb-lienket-nguoidan")
+col_btn_gt, col_btn_dk = khung_lienket.columns(2)
 with col_btn_gt:
     st.page_link("giao_dien/gioi_thieu.py", label="Giới thiệu dự án", icon="📖")
 with col_btn_dk:
