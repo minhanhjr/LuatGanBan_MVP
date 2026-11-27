@@ -85,14 +85,13 @@ def chon_giong_nghe(*, key: str) -> list[str]:
     """Lưu lựa chọn tiếng cho cả trang micro và trang tra cứu."""
     ngon_ngu = {n.ma: n.nhan for n in NN.dang_dung()}
     ss.setdefault(key, [ma for ma in ss.get("cac_ngon_ngu", NN.MAC_DINH) if ma in ngon_ngu])
-    with st.expander("🔊 Chọn tiếng"):
-        lua_chon = st.multiselect(
-            "Bà con muốn nghe bằng tiếng gì?",
-            options=list(ngon_ngu),
-            key=key,
-            format_func=ngon_ngu.__getitem__,
-            help="Tiếng chọn đầu tiên là tiếng bà con nói. Có thể chọn thêm tiếng để nghe.",
-        )
+    lua_chon = st.multiselect(
+        "Bà con muốn nghe bằng tiếng gì?",
+        options=list(ngon_ngu),
+        key=key,
+        format_func=ngon_ngu.__getitem__,
+        help="Tiếng chọn đầu tiên là tiếng bà con nói. Có thể chọn thêm tiếng để nghe.",
+    )
     ss.cac_ngon_ngu = lua_chon or [NN.MA_TIENG_VIET]
     return ss.cac_ngon_ngu
 
@@ -136,7 +135,7 @@ def _lay_ban_dich(kq: dict, ma: str):
 
 @st.fragment
 def khung_nghe_ket_qua(kq: dict) -> None:
-    from core.tts import phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
+    from core.tts import NHAN_TANG, phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
 
     cac_tieng = list(dict.fromkeys([*kq["cac_ngon_ngu"], NN.MA_TIENG_VIET]))
     for ma in cac_tieng:
@@ -148,8 +147,9 @@ def khung_nghe_ket_qua(kq: dict) -> None:
             try:
                 with st.spinner("Đang chuẩn bị giọng đọc…"):
                     if ma == "mong":
-                        ban_dich = _lay_ban_dich(kq, ma)
-                        tep, tang = phat_tieng_mong(ban_dich["rpa"], key=kq["thu_tuc"].key)
+                        tep, tang = phat_tieng_mong(
+                            lambda: _lay_ban_dich(kq, "mong")["rpa"], key=kq["thu_tuc"].key,
+                        )
                         kq["tang_tts"] = tang
                     elif ma == "tay":
                         tep, tang = phat_tieng_tay(_lay_ban_dich(kq, ma))
@@ -158,7 +158,9 @@ def khung_nghe_ket_qua(kq: dict) -> None:
                         tep = tts_tieng_viet(kq["kich_ban"])
                 kq["thoi_gian"][f"tts_{ma}"] = time.perf_counter() - luc_bat_dau
                 if _phat_audio(tep, key=f"ket_qua_{ma}"):
-                    if ma == "tay" or (ma == "mong" and kq.get("tang_tts") == "vi_phonetic"):
+                    if ma == "mong" and kq.get("tang_tts") in NHAN_TANG:
+                        st.caption(NHAN_TANG[kq["tang_tts"]])
+                    if ma == "tay":
                         st.caption("Giọng máy đọc tiếng dân tộc thiểu số.")
                 else:
                     st.info("Chưa có giọng đọc này. Bà con thử lại hoặc chọn tiếng Việt.")

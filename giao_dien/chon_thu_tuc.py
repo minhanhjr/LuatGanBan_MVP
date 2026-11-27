@@ -12,7 +12,10 @@ KHOA_KET_QUA = "is18_ket_qua_tra_cuu"
 
 @st.fragment
 def khung_tra_cuu() -> None:
-    cach_tra_cuu = st.radio("Cách tra cứu", ["Chọn từ danh sách", "Gõ câu hỏi"], horizontal=True)
+    cach_tra_cuu = st.radio(
+        "Cách tra cứu", ["Chọn từ danh sách", "Gõ câu hỏi"],
+        index=int(st.query_params.get("cach") == "go"), horizontal=True,
+    )
     cac_tieng = chon_giong_nghe(key="is18_tieng_tra_cuu")
 
     if cach_tra_cuu == "Gõ câu hỏi":
