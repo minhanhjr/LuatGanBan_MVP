@@ -10,6 +10,7 @@ Chạy:  python -m streamlit run app.py
 from __future__ import annotations
 
 import base64
+from html import escape
 from pathlib import Path
 
 import streamlit as st
@@ -19,9 +20,77 @@ from core import auth
 from giao_dien.van_ban_ui import co_quyen_dang_dieu_khoan_ai_ngoai
 
 ROOT = Path(__file__).resolve().parent
+LINK_FACEBOOK = "https://web.facebook.com/luatganban"
+LINK_TIKTOK = "https://www.tiktok.com/"  # Thay bằng URL kênh chính thức khi có.
 
 st.set_page_config(page_title="LUẬT GẦN BẢN - Chuyển đổi số: Không để ai bị bỏ lại phía sau", page_icon="⚖️",
                    layout="centered", initial_sidebar_state="collapsed")
+
+
+def hien_thi_lien_ket_xa_hoi() -> None:
+    """Hiện liên kết ở cuối trang, chỉ tải mạng xã hội khi người dùng bấm."""
+    bieu_tuong_fb = (
+        "M14 21v-8h2.7l.4-3H14V8.1c0-.87.24-1.47 1.5-1.47h1.7V3.95"
+        "a21 21 0 0 0-2.47-.13C12.3 3.82 10.6 5.28 10.6 8v2H8v3h2.6v8Z"
+    )
+    bieu_tuong_tt = (
+        "M19 8.71a5.09 5.09 0 0 1-4-4.45V4h-3.44v11.81a2.89 2.89 0 1 1-2-2.75"
+        "V9.56a6.33 6.33 0 1 0 5.44 6.25V9.82A8.49 8.49 0 0 0 20 11.4V8.96Z"
+    )
+    kenh = (
+        ("Facebook", LINK_FACEBOOK, bieu_tuong_fb),
+        ("Trang chủ TikTok" if LINK_TIKTOK == "https://www.tiktok.com/" else "TikTok",
+         LINK_TIKTOK, bieu_tuong_tt),
+    )
+    lien_ket = "".join(
+        f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">'
+        f'<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+        f'<path fill="currentColor" d="{icon}"/></svg>{ten}</a>'
+        for ten, url, icon in kenh if url
+    )
+    st.html(f"""
+    <style>
+      .lgb-social-footer {{
+        border-top: 1px solid #e2e8f0;
+        margin: 1.7rem 0 0;
+        padding: 1rem 0 0;
+        text-align: center;
+      }}
+      .lgb-social-footer h2 {{
+        color: #003366;
+        font-size: 1.0625rem;
+        margin: 0 0 .55rem;
+        padding: 0;
+      }}
+      .lgb-social-links {{
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: .5rem;
+      }}
+      .lgb-social-links a {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: .35rem;
+        min-height: 44px;
+        padding: .35rem .8rem;
+        color: #003366;
+        background: #f8fafc;
+        border: 1px solid #cbd5e1;
+        border-radius: 999px;
+        font-weight: 600;
+        text-decoration: none;
+      }}
+      .lgb-social-links a:hover {{ background: #eef5fb; text-decoration: underline; }}
+      .lgb-social-links a:focus-visible {{ outline: 2px solid #003366; outline-offset: 2px; }}
+    </style>
+    <nav class="lgb-social-footer" aria-label="Kênh truyền thông Luật Gần Bản">
+      <h2>Theo dõi Luật Gần Bản</h2>
+      <div class="lgb-social-links">{lien_ket}</div>
+    </nav>
+    """)
+
 
 # ==========================================================================
 # GIAO DIỆN CHUNG 
@@ -328,3 +397,4 @@ if auth.la_admin():
 
 # Chạy điều hướng ẩn sidebar, quản lý các trang thông qua nút điều hướng trong giao diện
 st.navigation(trang, position="hidden").run()
+hien_thi_lien_ket_xa_hoi()
