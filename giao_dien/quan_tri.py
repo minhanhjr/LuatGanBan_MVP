@@ -6,12 +6,16 @@ Mỗi tab tương ứng một quyền trong core/auth.QUYEN. Cán bộ chỉ th�
 """
 from __future__ import annotations
 
+import io
 import json
+import os
 import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+from zipfile import ZipFile
 
 import pandas as pd
 import streamlit as st
@@ -24,8 +28,13 @@ from core.llm import (LoiQuota, danh_sach_model, ly_do_chan, model_dang_dung,
                         so_den, xoa_so_den)
 from core.simplify import CAU_HOI_MAC_DINH, _cache_file, don_gian_hoa
 from core.translate import GLOSSARY_FILE
-from giao_dien.ai_ngoai import (co_quyen_dang_dieu_khoan_ai_ngoai,
-                              hien_thi_quan_ly_dieu_khoan_ai_ngoai)
+from giao_dien.van_ban_ui import (
+    TEP_DIEU_KHOAN_AI_NGOAI,
+    co_quyen_dang_dieu_khoan_ai_ngoai,
+    doc_dieu_khoan_ai_ngoai,
+    hien_thi_dieu_khoan_ai_ngoai,
+    tai_khoan_sua_dieu_khoan_ai,
+)
 
 try:
     from core.config import DATA as _DATA_DIR
@@ -76,6 +85,146 @@ if not duoc_phep:
     st.stop()
 
 tabs = dict(zip([q for q, _ in duoc_phep], st.tabs([n for _, n in duoc_phep])))
+
+GIOI_HAN_TEP = 2 * 1024 * 1024
+GIOI_HAN_NOI_DUNG = 15_000
+
+
+def _kiem_tra_noi_dung(van_ban: str) -> str:
+    van_ban = van_ban.strip()
+    if "\x00" in van_ban or not any(ky_tu.isalnum() for ky_tu in van_ban):
+        raise ValueError("Điều khoản phải có nội dung bằng chữ. Nếu tệp PDF là ảnh scan, hãy dùng bản Word hoặc TXT.")
+    if len(van_ban) > GIOI_HAN_NOI_DUNG:
+        raise ValueError("Nội dung quá dài. Hãy chỉ tải phần điều khoản AI bên ngoài (tối đa 15.000 ký tự).")
+    return van_ban
+
+
+def trich_xuat_dieu_khoan(ten_tep: str, du_lieu: bytes) -> str:
+    if not du_lieu or len(du_lieu) > GIOI_HAN_TEP:
+        raise ValueError("Hãy chọn tệp có nội dung và dung lượng tối đa 2 MB.")
+    duoi_tep = Path(ten_tep).suffix.lower()
+    if duoi_tep == ".txt":
+        try:
+            return _kiem_tra_noi_dung(du_lieu.decode("utf-8-sig"))
+        except UnicodeError as exc:
+            raise ValueError("Tệp TXT cần được lưu dưới dạng UTF-8.") from exc
+
+    if duoi_tep == ".docx":
+        from docx import Document
+        from docx.text.paragraph import Paragraph
+
+        tep = io.BytesIO(du_lieu)
+        try:
+            with ZipFile(tep) as goi:
+                if sum(tep_nen.file_size for tep_nen in goi.infolist()) > 10 * 1024 * 1024:
+                    raise ValueError("Tệp Word quá lớn sau khi giải nén.")
+            tep.seek(0)
+            doc = Document(tep)
+            cac_doan = []
+            for khoi in doc.iter_inner_content():
+                if isinstance(khoi, Paragraph):
+                    cac_doan.append(khoi.text)
+                else:
+                    for hang in khoi.rows:
+                        cac_doan.append(" | ".join(o.text for o in hang.cells))
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("Không đọc được tệp Word. Hãy chọn một tệp .docx hợp lệ.") from exc
+        return _kiem_tra_noi_dung("\n\n".join(doan for doan in cac_doan if doan.strip()))
+
+    if duoi_tep == ".pdf":
+        import pdfplumber
+
+        try:
+            with pdfplumber.open(io.BytesIO(du_lieu)) as pdf:
+                if len(pdf.pages) > 15:
+                    raise ValueError("Tệp PDF được giới hạn 15 trang. Hãy chỉ tải phần điều khoản AI bên ngoài.")
+                cac_trang = [trang.extract_text() or "" for trang in pdf.pages]
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("Không đọc được tệp PDF. Hãy chọn bản PDF có chữ hoặc dùng Word.") from exc
+        if any(not trang.strip() for trang in cac_trang):
+            raise ValueError("Có trang PDF không trích được chữ. Hãy dùng bản Word hoặc tệp văn bản để tránh thiếu nội dung.")
+        return _kiem_tra_noi_dung("\n\n".join(cac_trang))
+
+    raise ValueError("Hãy chọn tệp Word (.docx), PDF có chữ hoặc TXT.")
+
+
+def luu_dieu_khoan_ai_ngoai(ten_tep: str, noi_dung: str) -> None:
+    tai_khoan = tai_khoan_sua_dieu_khoan_ai()
+    if tai_khoan is None:
+        raise PermissionError("Chỉ quản trị viên và cán bộ đang hoạt động được cập nhật điều khoản.")
+    ban = {
+        "noi_dung": _kiem_tra_noi_dung(noi_dung),
+        "ten_tep": Path(ten_tep.replace("\\", "/")).name,
+        "nguoi_cap_nhat": tai_khoan["ten_dang_nhap"],
+        "cap_nhat_luc": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    thu_muc = TEP_DIEU_KHOAN_AI_NGOAI.parent
+    thu_muc.mkdir(parents=True, exist_ok=True)
+    tep_tam = None
+    try:
+        with NamedTemporaryFile(mode="w", encoding="utf-8", dir=thu_muc, delete=False) as tep:
+            tep_tam = Path(tep.name)
+            json.dump(ban, tep, ensure_ascii=False)
+            tep.flush()
+            os.fsync(tep.fileno())
+        os.replace(tep_tam, TEP_DIEU_KHOAN_AI_NGOAI)
+    finally:
+        if tep_tam is not None:
+            tep_tam.unlink(missing_ok=True)
+
+
+def hien_thi_quan_ly_dieu_khoan_ai_ngoai() -> None:
+    if not co_quyen_dang_dieu_khoan_ai_ngoai():
+        return
+
+    ban = doc_dieu_khoan_ai_ngoai()
+    khoa_noi_dung = "is20_noi_dung_soan"
+    khoa_tep = "is20_ten_tep_soan"
+    st.session_state.setdefault(khoa_noi_dung, ban.get("noi_dung", ""))
+    st.session_state.setdefault(khoa_tep, ban.get("ten_tep", ""))
+
+    st.subheader("Điều khoản khi chuyển sang AI bên ngoài")
+    st.caption("Soạn trực tiếp hoặc lấy nội dung từ tệp. Chọn Lưu và hiển thị để công bố.")
+    tep = st.file_uploader(
+        "Chọn Word (.docx), PDF có chữ hoặc TXT (tối đa 2 MB)",
+        type=["docx", "pdf", "txt"],
+        key="is20_tep_dieu_khoan",
+    )
+    if tep is not None and st.button("Đưa nội dung tệp vào ô soạn thảo", key="is20_nhap_tep"):
+        try:
+            noi_dung = trich_xuat_dieu_khoan(tep.name, tep.getvalue())
+        except ValueError as exc:
+            st.warning(str(exc))
+        else:
+            st.session_state[khoa_noi_dung] = noi_dung
+            st.session_state[khoa_tep] = tep.name
+
+    noi_dung = st.text_area("Nội dung điều khoản", key=khoa_noi_dung, height=270,
+                           max_chars=GIOI_HAN_NOI_DUNG)
+    if st.button("Lưu và hiển thị", key="is20_luu_dieu_khoan", type="primary"):
+        try:
+            luu_dieu_khoan_ai_ngoai(st.session_state[khoa_tep], noi_dung)
+        except (ValueError, PermissionError) as exc:
+            st.error(str(exc))
+        except OSError:
+            st.error("Chưa lưu được bản mới. Vui lòng thử lại hoặc báo quản trị viên.")
+        else:
+            st.success("Đã lưu. Hộp thoại sẽ hiện điều khoản mới.")
+            ban = doc_dieu_khoan_ai_ngoai()
+
+    if ban:
+        with st.expander("Xem điều khoản đang công bố"):
+            if ban.get("ten_tep"):
+                st.text(f"Tệp nguồn: {ban['ten_tep']}")
+            st.text(f"Cập nhật: {ban.get('nguoi_cap_nhat', '')} · {ban.get('cap_nhat_luc', '')}")
+            hien_thi_dieu_khoan_ai_ngoai(ban["noi_dung"])
+    else:
+        st.info("Chưa có điều khoản được công bố.")
+
 
 if "dieu_khoan_ai_ngoai" in tabs:
     with tabs["dieu_khoan_ai_ngoai"]:
