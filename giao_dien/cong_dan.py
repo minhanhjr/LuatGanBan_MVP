@@ -16,7 +16,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import math
 import time
 from datetime import datetime
 from pathlib import Path
@@ -488,41 +487,9 @@ def khung_danh_gia_cau_tra_loi(kq: dict) -> None:
         st.info("🙏 Cảm ơn bà con. Bà con có thể bấm nghe lại hoặc nhắn tin hỏi cán bộ bên dưới nhé.")
 
 
-NGUONG_AI_NGOAI = 0.55
 LINK_CHATGPT = "https://chatgpt.com/"
 LINK_GEMINI = "https://gemini.google.com/"
 KHOA_DONG_Y_AI_NGOAI = "is20_dong_y"
-
-
-def _tin_cay_thap(gia_tri: object) -> bool:
-    """Chỉ đánh giá các giá trị tin cậy hợp lệ theo thang từ 0 đến 1."""
-    if gia_tri is None or isinstance(gia_tri, bool):
-        return False
-    try:
-        diem = float(gia_tri)
-    except (TypeError, ValueError):
-        return False
-    return math.isfinite(diem) and 0 <= diem < NGUONG_AI_NGOAI
-
-
-def nen_hien_ai_ngoai(ket_qua: dict | None) -> bool:
-    """Chỉ gợi ý khi ngoài phạm vi hoặc phân loại dưới ngưỡng 55%."""
-    if not isinstance(ket_qua, dict) or ket_qua.get("loi"):
-        return False
-    if not str(ket_qua.get("cau_noi") or "").strip():
-        return False
-    tuyen = ket_qua.get("tuyen")
-    if not isinstance(tuyen, dict) or not tuyen:
-        return False
-
-    chua_co_thu_tuc = ket_qua.get("thu_tuc") is None
-    if tuyen.get("nhom") == "KHAC" and chua_co_thu_tuc:
-        return True
-
-    diem_thu_tuc = tuyen.get("tin_cay_thu_tuc")
-    if diem_thu_tuc is not None:
-        return _tin_cay_thap(diem_thu_tuc)
-    return chua_co_thu_tuc and _tin_cay_thap(tuyen.get("tin_cay_nhom"))
 
 
 def nut_nghe_canh_bao(noi_dung: str, *, key: str) -> None:
@@ -578,9 +545,7 @@ def hop_thoai_ai_ngoai() -> None:
         st.rerun()
 
 
-def hien_thi_lua_chon_ai_ngoai(ket_qua: dict) -> None:
-    if not nen_hien_ai_ngoai(ket_qua):
-        return
+def hien_thi_lua_chon_ai_ngoai() -> None:
     if st.button("🤖 Chuyển sang AI bên ngoài", key="is20_mo_canh_bao",
                  use_container_width=True):
         st.session_state.pop(KHOA_DONG_Y_AI_NGOAI, None)
@@ -617,7 +582,6 @@ def nut_goi_can_bo(kq: dict) -> None:
         type="primary",
         use_container_width=True,
     )
-    hien_thi_lua_chon_ai_ngoai(kq)
 
 
 def hien_ket_qua(kq: dict) -> None:
@@ -763,6 +727,7 @@ def hien_ket_qua(kq: dict) -> None:
 if ss.ket_qua:
     st.write("---")
     hien_ket_qua(ss.ket_qua)
+    hien_thi_lua_chon_ai_ngoai()
 
 
 # ==========================================================================
