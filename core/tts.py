@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from core.config import AUDIO_BANK, CACHE_AUDIO, TTS_HMONG_PROVIDER
@@ -119,18 +120,19 @@ def tts_vi_phonetic(text_rpa: str) -> Path | None:
 
 # ------------------------------------------------------------------ điều phối
 def phat_tieng_mong(
-    text_rpa: str,
+    text_rpa: str | Callable[[], str],
     *,
     key: str | None = None,
     provider: str | None = None,
 ) -> tuple[Path | None, str]:
     """Trả về (đường dẫn file âm thanh | None, tên tầng đã dùng).
 
+    Có thể truyền hàm tạo bản dịch để tra bản thu theo mã thủ tục trước.
     Tên tầng dùng để hiện nhãn trung thực trên UI — người dân và ban giám khảo
     đều cần biết đây là giọng người thật hay giọng máy xấp xỉ.
     """
     provider = provider or TTS_HMONG_PROVIDER
-    if provider == "off" or not (text_rpa or "").strip():
+    if provider == "off":
         return None, "off"
 
     thu_tu = {
@@ -140,6 +142,15 @@ def phat_tieng_mong(
         "cosyvoice": ["local_neural"],
         "vi_phonetic": ["vi_phonetic"],
     }.get(provider, ["vi_phonetic"])
+
+    if callable(text_rpa):
+        if "audio_bank" in thu_tu and key:
+            tep = tts_audio_bank("", key=key)
+            if tep is not None:
+                return tep, "audio_bank"
+        text_rpa = text_rpa()
+    if not (text_rpa or "").strip():
+        return None, "off"
 
     for tang in thu_tu:
         if tang == "audio_bank":

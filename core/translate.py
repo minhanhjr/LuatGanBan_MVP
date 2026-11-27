@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -129,6 +130,8 @@ def dich_sang_mong(text: str, *, provider: str | None = None) -> dict:
     {'rpa': 'Nyob zoo...', 'vn': 'Nhó rong...', 'hien_thi': ...}
     """
     rpa = dich(text, sang_mong=True, provider=provider)
+    if not rpa or re.findall(r"\w+", rpa.casefold()) == re.findall(r"\w+", text.casefold()):
+        raise ValueError("Chưa có bản dịch tiếng Mông")
     vn = rpa_sang_vi(rpa)
     return {
         "rpa": rpa,
