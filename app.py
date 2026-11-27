@@ -294,16 +294,19 @@ def header() -> None:
 # ==========================================================================
 # DANH SÁCH TRANG (tạo một lần, dùng chung cho điều hướng và nút chuyển trang)
 # ==========================================================================
-if not hasattr(st, "navigation") or not hasattr(st, "Page"):
+if not all(hasattr(st, ten) for ten in ("navigation", "Page", "fragment")):
     st.error(
-        "Phiên bản Streamlit đang cài quá cũ (cần từ **1.36** trở lên).\n\n"
+        "Phiên bản Streamlit đang cài quá cũ (cần từ **1.40** trở lên).\n\n"
         "Mở terminal ở thư mục dự án và chạy:\n\n"
         "```\npip install -U streamlit\n```"
     )
     st.stop()
 
-TRANG_HOI_DAP = st.Page("giao_dien/cong_dan.py", title="Hỏi đáp thủ tục",
+TRANG_HOI_DAP = st.Page("giao_dien/cong_dan.py", title="Hỏi bằng giọng nói",
                         icon="🏠", default=True)
+TRANG_CHON_THU_TUC = st.Page("giao_dien/chon_thu_tuc.py", title="Chọn thủ tục", icon="📋")
+TRANG_HUONG_DAN = st.Page("giao_dien/huong_dan_su_dung.py", title="Hướng dẫn sử dụng", icon="📖")
+TRANG_GOP_Y = st.Page("giao_dien/gop_y.py", title="Góp ý", icon="💬")
 TRANG_GIOI_THIEU = st.Page("giao_dien/gioi_thieu.py", title="Giới thiệu dự án",
                            icon="📖")
 TRANG_DIEU_KHOAN = st.Page("giao_dien/dieu_khoan.py", title="Điều khoản sử dụng",
@@ -399,12 +402,25 @@ st.html("<hr style='margin: 8px 0 15px 0;'>")
 
 
 # ==========ĐIỀU HƯỚNG============================
-trang = [TRANG_HOI_DAP, TRANG_GIOI_THIEU, TRANG_DIEU_KHOAN]
+trang_cong_dan = [
+    TRANG_HOI_DAP, TRANG_CHON_THU_TUC, TRANG_HUONG_DAN, TRANG_GOP_Y,
+    TRANG_GIOI_THIEU, TRANG_DIEU_KHOAN,
+]
+trang = list(trang_cong_dan)
 if duoc_vao_quan_tri():
     trang.append(TRANG_QUAN_TRI)
 if auth.la_admin():
     trang.append(TRANG_TAI_KHOAN)
 
-# Chạy điều hướng ẩn sidebar, quản lý các trang thông qua nút điều hướng trong giao diện
-st.navigation(trang, position="hidden").run()
+trang_hien_tai = st.navigation(trang, position="hidden")
+if trang_hien_tai in (TRANG_CHON_THU_TUC, TRANG_HUONG_DAN, TRANG_GOP_Y):
+    st.page_link(TRANG_HOI_DAP, label="Về trang hỏi bằng giọng nói", icon="🏠")
+
+trang_hien_tai.run()
+
+if trang_hien_tai in trang_cong_dan:
+    with st.expander("Chọn cách khác hoặc xem hỗ trợ"):
+        for muc in trang_cong_dan[1:]:
+            if muc is not trang_hien_tai:
+                st.page_link(muc)
 hien_thi_lien_ket_xa_hoi()
