@@ -16,6 +16,7 @@ import streamlit as st
 from streamlit.components.v1 import html as _html
 
 from core import auth
+from giao_dien.ai_ngoai import co_quyen_dang_dieu_khoan_ai_ngoai
 
 ROOT = Path(__file__).resolve().parent
 
@@ -236,7 +237,9 @@ TRANG_TAI_KHOAN = st.Page("giao_dien/tai_khoan.py", title="Phân quyền",
 
 def duoc_vao_quan_tri() -> bool:
     u = auth.nguoi_dang_nhap()
-    return bool(u) and (auth.la_admin() or bool(auth.quyen_cua(u)))
+    return bool(u) and (
+        auth.la_admin() or bool(auth.quyen_cua(u)) or co_quyen_dang_dieu_khoan_ai_ngoai()
+    )
 
 
 def nut_chuyen_trang_can_bo() -> None:
