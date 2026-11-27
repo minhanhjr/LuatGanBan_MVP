@@ -10,6 +10,7 @@ psycopg2-binary>=2.9.0
 
 # --- giọng nói ---
 gTTS>=2.5                    # TTS tiếng Việt (dùng cho cả phiên âm tiếng Mông)
+imageio-ffmpeg==0.6.0        # Binary FFmpeg kèm wheel để nén Opus, không cần apt
 # edge-tts>=6.1              # tuỳ chọn: giọng Việt tự nhiên hơn gTTS
 SpeechRecognition>=3.10      # dự phòng khi Gemini STT lỗi
 
