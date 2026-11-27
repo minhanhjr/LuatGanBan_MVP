@@ -16,7 +16,7 @@ import streamlit as st
 from streamlit.components.v1 import html as _html
 
 from core import auth
-from giao_dien.ai_ngoai import co_quyen_dang_dieu_khoan_ai_ngoai
+from giao_dien.van_ban_ui import co_quyen_dang_dieu_khoan_ai_ngoai
 
 ROOT = Path(__file__).resolve().parent
 
