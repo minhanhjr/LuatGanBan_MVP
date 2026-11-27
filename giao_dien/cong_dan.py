@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import time
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +38,8 @@ from core.stt import nghe
 from core.translate import (dich_sang_mong, dich_sang_tay, dich_sang_viet,
                             dich_tay_sang_viet)
 from core.tts import NHAN_TANG, phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
-from giao_dien.ai_ngoai import hien_thi_lua_chon_ai_ngoai
+from giao_dien.van_ban_ui import (doc_dieu_khoan_ai_ngoai,
+                                  hien_thi_dieu_khoan_ai_ngoai)
 
 try:
     from core.config import DATA as _DATA_DIR
@@ -484,6 +486,105 @@ def khung_danh_gia_cau_tra_loi(kq: dict) -> None:
         st.success("✅ Cảm ơn bà con! Rất vui vì hướng dẫn dễ hiểu.")
     elif trang_thai_dg == "chua_hieu":
         st.info("🙏 Cảm ơn bà con. Bà con có thể bấm nghe lại hoặc nhắn tin hỏi cán bộ bên dưới nhé.")
+
+
+NGUONG_AI_NGOAI = 0.55
+LINK_CHATGPT = "https://chatgpt.com/"
+LINK_GEMINI = "https://gemini.google.com/"
+KHOA_DONG_Y_AI_NGOAI = "is20_dong_y"
+
+
+def _tin_cay_thap(gia_tri: object) -> bool:
+    """Chỉ đánh giá các giá trị tin cậy hợp lệ theo thang từ 0 đến 1."""
+    if gia_tri is None or isinstance(gia_tri, bool):
+        return False
+    try:
+        diem = float(gia_tri)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(diem) and 0 <= diem < NGUONG_AI_NGOAI
+
+
+def nen_hien_ai_ngoai(ket_qua: dict | None) -> bool:
+    """Chỉ gợi ý khi ngoài phạm vi hoặc phân loại dưới ngưỡng 55%."""
+    if not isinstance(ket_qua, dict) or ket_qua.get("loi"):
+        return False
+    if not str(ket_qua.get("cau_noi") or "").strip():
+        return False
+    tuyen = ket_qua.get("tuyen")
+    if not isinstance(tuyen, dict) or not tuyen:
+        return False
+
+    chua_co_thu_tuc = ket_qua.get("thu_tuc") is None
+    if tuyen.get("nhom") == "KHAC" and chua_co_thu_tuc:
+        return True
+
+    diem_thu_tuc = tuyen.get("tin_cay_thu_tuc")
+    if diem_thu_tuc is not None:
+        return _tin_cay_thap(diem_thu_tuc)
+    return chua_co_thu_tuc and _tin_cay_thap(tuyen.get("tin_cay_nhom"))
+
+
+def nut_nghe_canh_bao(noi_dung: str, *, key: str) -> None:
+    """Chỉ tạo và tải âm thanh khi người dùng yêu cầu nghe."""
+    if not st.button("🔊 Nghe điều khoản", key=key, use_container_width=True):
+        return
+    try:
+        with st.spinner("Đang chuẩn bị lời nhắc…"):
+            duong_dan = tts_tieng_viet(noi_dung, tag="canh_bao_ai_ngoai")
+        tep = Path(duong_dan) if duong_dan else None
+        if tep and tep.is_file() and tep.stat().st_size > 0:
+            st.audio(str(tep), format="audio/mpeg", autoplay=True)
+            st.caption("Nếu chưa nghe thấy, bà con bấm nút phát trên thanh âm thanh.")
+            return
+    except Exception:
+        pass
+    st.info("Chưa phát được lời nhắc. Bà con vui lòng đọc nội dung bên trên hoặc nhờ cán bộ hỗ trợ.")
+
+
+def _chap_nhan_dieu_khoan(noi_dung: str) -> None:
+    # Gắn sự đồng ý với nội dung đã hiển thị trong lần mở này.
+    st.session_state[KHOA_DONG_Y_AI_NGOAI] = noi_dung
+
+
+@st.dialog("Điều khoản khi chuyển sang AI bên ngoài")
+def hop_thoai_ai_ngoai() -> None:
+    noi_dung = doc_dieu_khoan_ai_ngoai().get("noi_dung", "")
+    nhan_quay_lai = "Quay lại Luật Gần Bản"
+    if noi_dung:
+        hien_thi_dieu_khoan_ai_ngoai(noi_dung)
+        nut_nghe_canh_bao(noi_dung, key="is20_nghe_canh_bao")
+        st.caption("Luật Gần Bản chỉ mở liên kết. Câu hỏi và bản ghi âm không tự động gửi sang công cụ bên ngoài.")
+
+        if st.session_state.get(KHOA_DONG_Y_AI_NGOAI) == noi_dung:
+            st.link_button("Mở ChatGPT (OpenAI)", LINK_CHATGPT, use_container_width=True)
+            st.link_button("Mở Gemini (Google)", LINK_GEMINI, use_container_width=True)
+        else:
+            st.caption("Tôi đã đọc và hiểu các nội dung cảnh báo trên và tự nguyện tiếp tục truy cập công cụ AI bên ngoài.")
+            st.button(
+                "Đồng ý",
+                key="is20_chap_nhan",
+                type="primary",
+                use_container_width=True,
+                on_click=_chap_nhan_dieu_khoan,
+                args=(noi_dung,),
+            )
+            nhan_quay_lai = "Không đồng ý"
+    else:
+        st.warning("Hiện chưa mở được điều khoản. Bà con có thể quay lại và nhờ cán bộ hỗ trợ.")
+
+    if st.button(nhan_quay_lai, key="is20_quay_lai", use_container_width=True):
+        st.session_state.pop(KHOA_DONG_Y_AI_NGOAI, None)
+        st.rerun()
+
+
+def hien_thi_lua_chon_ai_ngoai(ket_qua: dict) -> None:
+    if not nen_hien_ai_ngoai(ket_qua):
+        return
+    if st.button("🤖 Chuyển sang AI bên ngoài", key="is20_mo_canh_bao",
+                 use_container_width=True):
+        st.session_state.pop(KHOA_DONG_Y_AI_NGOAI, None)
+        hop_thoai_ai_ngoai()
 
 
 def nut_goi_can_bo(kq: dict) -> None:
