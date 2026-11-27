@@ -413,14 +413,32 @@ if auth.la_admin():
     trang.append(TRANG_TAI_KHOAN)
 
 trang_hien_tai = st.navigation(trang, position="hidden")
+if trang_hien_tai in trang_cong_dan and not auth.nguoi_dang_nhap():
+    cot_gioi_thieu, cot_dieu_khoan = st.columns(2)
+    if trang_hien_tai is not TRANG_GIOI_THIEU:
+        cot_gioi_thieu.page_link(TRANG_GIOI_THIEU, use_container_width=True)
+    if trang_hien_tai is not TRANG_DIEU_KHOAN:
+        cot_dieu_khoan.page_link(TRANG_DIEU_KHOAN, use_container_width=True)
+
 if trang_hien_tai in (TRANG_CHON_THU_TUC, TRANG_HUONG_DAN, TRANG_GOP_Y):
     st.page_link(TRANG_HOI_DAP, label="Về trang hỏi bằng giọng nói", icon="🏠")
 
 trang_hien_tai.run()
 
 if trang_hien_tai in trang_cong_dan:
-    with st.expander("Chọn cách khác hoặc xem hỗ trợ"):
-        for muc in trang_cong_dan[1:]:
-            if muc is not trang_hien_tai:
-                st.page_link(muc)
+    cot_tra_cuu, cot_ho_tro = st.columns(2)
+    if trang_hien_tai is not TRANG_CHON_THU_TUC:
+        cot_tra_cuu.page_link(TRANG_CHON_THU_TUC, use_container_width=True)
+        try:
+            cot_tra_cuu.page_link(
+                TRANG_CHON_THU_TUC, label="Gõ câu hỏi", icon="⌨️",
+                query_params={"cach": "go"}, use_container_width=True,
+            )
+        except TypeError:
+            # Các bản Streamlit cũ vẫn mở được cả hai chế độ từ Chọn thủ tục.
+            pass
+    if trang_hien_tai is not TRANG_HUONG_DAN:
+        cot_ho_tro.page_link(TRANG_HUONG_DAN, use_container_width=True)
+    if trang_hien_tai is not TRANG_GOP_Y:
+        cot_ho_tro.page_link(TRANG_GOP_Y, use_container_width=True)
 hien_thi_lien_ket_xa_hoi()
