@@ -49,13 +49,18 @@ def hien_thi_lien_ket_xa_hoi() -> None:
         ("Trang chủ TikTok" if LINK_TIKTOK == "https://www.tiktok.com/" else "TikTok",
          LINK_TIKTOK, bieu_tuong_tt),
     )
-    lien_ket = "".join(
-        f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer"'
-        f' aria-label="{ten}" title="{ten}">'
-        f'<svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
-        f'{icon}</svg></a>'
-        for ten, url, icon in kenh if url
-    )
+    # st.html lọc thẻ SVG trực tiếp, nên hiện SVG tĩnh qua thẻ ảnh.
+    lien_ket = []
+    for ten, url, icon in kenh:
+        if not url:
+            continue
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">{icon}</svg>'
+        anh = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        lien_ket.append(
+            f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer"'
+            f' aria-label="{ten}" title="{ten}">'
+            f'<img src="data:image/svg+xml;base64,{anh}" width="26" height="26" alt=""></a>'
+        )
     st.html(f"""
     <style>
       .lgb-social-footer {{
@@ -92,7 +97,7 @@ def hien_thi_lien_ket_xa_hoi() -> None:
     </style>
     <nav class="lgb-social-footer" aria-label="Kênh truyền thông Luật Gần Bản">
       <h2>Theo dõi Luật Gần Bản</h2>
-      <div class="lgb-social-links">{lien_ket}</div>
+      <div class="lgb-social-links">{"".join(lien_ket)}</div>
     </nav>
     """)
 
