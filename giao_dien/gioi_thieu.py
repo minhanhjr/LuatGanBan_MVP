@@ -6,6 +6,7 @@ import html
 from pathlib import Path
 from core import auth
 from core.config import BAT_TIENG_TAY
+from giao_dien.am_thanh import phat_am_thanh
 from giao_dien.van_ban_ui import hien_thi_van_ban
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,6 +77,15 @@ DATA_FILE = DATA_DIR / "gioi_thieu.md"
 AUDIO_MONG_FILE = ROOT / "audio" / "gioi_thieu_mong.m4a"
 AUDIO_VI_FILE = ROOT / "audio" / "gioi_thieu_vi.m4a"
 AUDIO_TAY_FILE = ROOT / "audio" / "gioi_thieu_tay.m4a"   # nếu có bản thu thì dùng bản thu
+
+
+def _phat_ban_gioi_thieu(tep: Path) -> bool:
+    return phat_am_thanh(
+        tep if tep.exists() else tep.with_suffix(".mp3"),
+        key=tep.stem,
+        opus=tep.with_suffix(".ogg"),
+        mp3=tep.with_suffix(".mp3"),
+    )
 
 # Chưa có bản thu tiếng Tày -> máy dịch đoạn ngắn này sang tiếng Tày rồi đọc (bản thử)
 GIOI_THIEU_NGAN = (
@@ -312,25 +322,18 @@ display_content = st.session_state["intro_content"]
 
 # Xử lý phát âm thanh chính xác khi người dùng chủ động bấm chọn
 if selected_lang == "🔊 Tiếng Mông":
-    if AUDIO_MONG_FILE.exists():
-        st.audio(str(AUDIO_MONG_FILE), format="audio/mp4", autoplay=True)
-    else:
+    if not _phat_ban_gioi_thieu(AUDIO_MONG_FILE):
         st.warning("⚠️ Đang cập nhật tệp âm thanh tiếng Mông tại thư mục `audio/gioi_thieu_mong.m4a`.")
 elif selected_lang == "🔊 Tiếng Tày":
-    if AUDIO_TAY_FILE.exists():
-        st.audio(str(AUDIO_TAY_FILE), format="audio/mp4", autoplay=True)
-    else:
+    if not _phat_ban_gioi_thieu(AUDIO_TAY_FILE):
         with st.spinner("Đang chuẩn bị bản đọc tiếng Tày…"):
             p_tay = _audio_gioi_thieu_tay()
-        if p_tay:
-            st.audio(p_tay, format="audio/mpeg", autoplay=True)
+        if phat_am_thanh(p_tay, key="gioi_thieu_tay"):
             st.caption("Giọng máy đọc tiếng dân tộc thiểu số.")
         else:
             st.warning("⚠️ Chưa tạo được bản đọc tiếng Tày. Bà con nghe tạm tiếng Việt nhé.")
 elif selected_lang == "🔊 Tiếng Việt":
-    if AUDIO_VI_FILE.exists():
-        st.audio(str(AUDIO_VI_FILE), format="audio/mp4", autoplay=True)
-    else:
+    if not _phat_ban_gioi_thieu(AUDIO_VI_FILE):
         st.info("💡 Để nghe bản đọc tiếng Việt, hãy đặt file âm thanh vào thư mục `audio/gioi_thieu_vi.m4a`.")
 
 st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)

@@ -7,12 +7,12 @@ import json
 import time
 from datetime import datetime
 from html import escape
-from pathlib import Path
 
 import streamlit as st
 
 from core import auth, ngon_ngu as NN
 from core.config import DANH_MUC_THU_TUC, DATA, HMONG_ORTHOGRAPHY
+from giao_dien.am_thanh import phat_am_thanh
 from giao_dien.van_ban_ui import doc_dieu_khoan_ai_ngoai, hien_thi_dieu_khoan_ai_ngoai
 
 ss = st.session_state
@@ -104,14 +104,9 @@ def xu_ly_cau_noi(cau_noi: str, *, khoa: str, cac_tieng: list[str], thu_tuc=None
     ss[khoa] = ket_qua
 
 
-def _phat_audio(duong_dan) -> bool:
-    if not duong_dan:
+def _phat_audio(duong_dan, *, key: str) -> bool:
+    if not phat_am_thanh(duong_dan, key=key, tu_phat=True):
         return False
-    tep = Path(duong_dan)
-    if not tep.is_file() or not tep.stat().st_size:
-        return False
-    mime = "audio/wav" if tep.suffix.lower() == ".wav" else "audio/mpeg"
-    st.audio(str(tep), format=mime, autoplay=True)
     st.caption("Nếu chưa nghe thấy, bà con bấm nút phát trên thanh âm thanh.")
     return True
 
@@ -124,7 +119,7 @@ def loa(text: str, *, nhan: str, key: str) -> None:
         try:
             with st.spinner("Đang chuẩn bị giọng đọc…"):
                 duong_dan = tts_tieng_viet(text)
-            if _phat_audio(duong_dan):
+            if _phat_audio(duong_dan, key=key):
                 return
         except OSError:
             pass
@@ -162,7 +157,7 @@ def khung_nghe_ket_qua(kq: dict) -> None:
                     else:
                         tep = tts_tieng_viet(kq["kich_ban"])
                 kq["thoi_gian"][f"tts_{ma}"] = time.perf_counter() - luc_bat_dau
-                if _phat_audio(tep):
+                if _phat_audio(tep, key=f"ket_qua_{ma}"):
                     if ma == "tay" or (ma == "mong" and kq.get("tang_tts") == "vi_phonetic"):
                         st.caption("Giọng máy đọc tiếng dân tộc thiểu số.")
                 else:
@@ -298,10 +293,7 @@ def nut_nghe_canh_bao(noi_dung: str, *, key: str) -> None:
     try:
         with st.spinner("Đang chuẩn bị lời nhắc…"):
             duong_dan = tts_tieng_viet(noi_dung, tag="canh_bao_ai_ngoai")
-        tep = Path(duong_dan) if duong_dan else None
-        if tep and tep.is_file() and tep.stat().st_size > 0:
-            st.audio(str(tep), format="audio/mpeg", autoplay=True)
-            st.caption("Nếu chưa nghe thấy, bà con bấm nút phát trên thanh âm thanh.")
+        if _phat_audio(duong_dan, key=key):
             return
     except Exception:
         pass
