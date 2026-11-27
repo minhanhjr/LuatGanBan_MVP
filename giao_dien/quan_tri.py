@@ -24,6 +24,8 @@ from core.llm import (LoiQuota, danh_sach_model, ly_do_chan, model_dang_dung,
                         so_den, xoa_so_den)
 from core.simplify import CAU_HOI_MAC_DINH, _cache_file, don_gian_hoa
 from core.translate import GLOSSARY_FILE
+from giao_dien.ai_ngoai import (co_quyen_dang_dieu_khoan_ai_ngoai,
+                              hien_thi_quan_ly_dieu_khoan_ai_ngoai)
 
 try:
     from core.config import DATA as _DATA_DIR
@@ -53,7 +55,7 @@ if not u:
 st.title("🛠️ Quản trị kho hướng dẫn")
 st.caption(f"Đang đăng nhập: **{u.get('mo_ta') or u['ten_dang_nhap']}** · "
            f"{'Quản trị viên (toàn quyền)' if auth.la_admin() else 'Cán bộ / Giảng viên / CTV ngôn ngữ'}")
-st.caption("Dữ liệu được lưu đồng bộ vĩnh viễn vào Cơ sở dữ liệu PostgreSQL.")
+st.caption("Kho hướng dẫn thủ tục được lưu trong cơ sở dữ liệu PostgreSQL.")
 
 TAB_DEF = [
     ("kho_thu_tuc",      "📊 Kho thủ tục (DB)"),
@@ -63,12 +65,21 @@ TAB_DEF = [
     ("bo_nho_tam",       "🧹 Bộ nhớ tạm"),
     ("phan_hoi",         "💬 Phản hồi & Nhật ký (IS-02)"),
 ]
-duoc_phep = [(q, nhan) for q, nhan in TAB_DEF if q == "phan_hoi" or auth.co_quyen(q)]
+duoc_phep = [
+    (q, nhan) for q, nhan in TAB_DEF
+    if (q == "phan_hoi" and auth.quyen_cua(u)) or (q != "phan_hoi" and auth.co_quyen(q))
+]
+if co_quyen_dang_dieu_khoan_ai_ngoai():
+    duoc_phep.append(("dieu_khoan_ai_ngoai", "📄 Điều khoản AI ngoài"))
 if not duoc_phep:
     st.warning("Tài khoản của bạn chưa được cấp quyền nào trên trang này.")
     st.stop()
 
 tabs = dict(zip([q for q, _ in duoc_phep], st.tabs([n for _, n in duoc_phep])))
+
+if "dieu_khoan_ai_ngoai" in tabs:
+    with tabs["dieu_khoan_ai_ngoai"]:
+        hien_thi_quan_ly_dieu_khoan_ai_ngoai()
 
 
 # =========================================================== 1 · KHO THỦ TỤC
