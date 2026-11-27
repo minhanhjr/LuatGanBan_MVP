@@ -523,10 +523,6 @@ if "phan_hoi" in tabs:
                 "danh_gia_hieu": "👍 Hiểu được",
                 "danh_gia_chua_hieu": "👎 Chưa hiểu",
                 "can_can_bo": "🙋 Cần cán bộ / Messenger",
-                "gop_y_thao_tac": "Góp ý: Khó thao tác",
-                "gop_y_am_thanh": "Góp ý: Khó nghe âm thanh",
-                "gop_y_mang": "Góp ý: Trang tải chậm",
-                "gop_y_noi_dung": "Góp ý: Hướng dẫn chưa rõ",
             }
             NHAN_NGON_NGU = {
                 "mong": "Tiếng Mông",
@@ -537,7 +533,7 @@ if "phan_hoi" in tabs:
             f1, f2, f3 = st.columns([2, 1.2, 1.3])
             ds_thu_tuc = ["Tất cả thủ tục"] + sorted([x for x in df_log["ten_thu_tuc"].dropna().unique() if str(x).strip()])
             ds_ngay = ["Tất cả các ngày"] + sorted([x for x in df_log["ngay"].dropna().unique() if str(x).strip()], reverse=True)
-            ds_loai = ["Tất cả loại", *NHAN_LOAI.values()]
+            ds_loai = ["Tất cả loại", "👍 Hiểu được", "👎 Chưa hiểu", "🙋 Cần cán bộ / Messenger"]
 
             chon_tt = f1.selectbox("Lọc theo thủ tục", ds_thu_tuc, key="loc_ph_thu_tuc")
             chon_ngay = f2.selectbox("Lọc theo ngày", ds_ngay, key="loc_ph_ngay")
