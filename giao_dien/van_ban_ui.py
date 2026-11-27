@@ -2,7 +2,47 @@
 """Trình bày nội dung giới thiệu và điều khoản trên mọi cỡ màn hình."""
 from __future__ import annotations
 
+from html import escape
+import json
+
 import streamlit as st
+
+from core import auth
+from core.config import DATA
+
+
+# Lưu trên volume Docker hiện có, ngoài các thư mục có nút xóa cache.
+TEP_DIEU_KHOAN_AI_NGOAI = DATA / "cache" / "cau_hinh" / "dieu_khoan_ai_ngoai.json"
+
+
+def tai_khoan_sua_dieu_khoan_ai() -> dict | None:
+    dang_nhap = auth.nguoi_dang_nhap()
+    if not dang_nhap:
+        return None
+    # Dùng vai trò hiện tại, kể cả khi tài khoản đã mở phiên trước khi đổi quyền.
+    tai_khoan = auth.doc_users().get(dang_nhap.get("ten_dang_nhap"))
+    if tai_khoan and tai_khoan.get("kich_hoat", True) and tai_khoan.get("vai_tro") in ("admin", "can_bo"):
+        return tai_khoan
+    return None
+
+
+def co_quyen_dang_dieu_khoan_ai_ngoai() -> bool:
+    return tai_khoan_sua_dieu_khoan_ai() is not None
+
+
+def doc_dieu_khoan_ai_ngoai() -> dict:
+    try:
+        ban = json.loads(TEP_DIEU_KHOAN_AI_NGOAI.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    if isinstance(ban, dict) and isinstance(ban.get("noi_dung"), str) and ban["noi_dung"].strip():
+        return ban
+    return {}
+
+
+def hien_thi_dieu_khoan_ai_ngoai(noi_dung: str) -> None:
+    with st.container(height=245, border=True):
+        st.html(f'<div style="white-space: pre-wrap; overflow-wrap: anywhere;">{escape(noi_dung)}</div>')
 
 
 def hien_thi_van_ban(noi_dung: str, *, key: str) -> None:
