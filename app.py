@@ -30,12 +30,19 @@ st.set_page_config(page_title="LUẬT GẦN BẢN - Chuyển đổi số: Không
 def hien_thi_lien_ket_xa_hoi() -> None:
     """Hiện liên kết ở cuối trang, chỉ tải mạng xã hội khi người dùng bấm."""
     bieu_tuong_fb = (
-        "M14 21v-8h2.7l.4-3H14V8.1c0-.87.24-1.47 1.5-1.47h1.7V3.95"
-        "a21 21 0 0 0-2.47-.13C12.3 3.82 10.6 5.28 10.6 8v2H8v3h2.6v8Z"
+        '<circle cx="12" cy="12" r="11.5" fill="#0866FF"/>'
+        '<path fill="#fff" d="M14 21v-8h2.7l.4-3H14V8.1c0-.87.24-1.47 1.5-1.47h1.7V3.95'
+        'a21 21 0 0 0-2.47-.13C12.3 3.82 10.6 5.28 10.6 8v2H8v3h2.6v8Z"/>'
     )
-    bieu_tuong_tt = (
+    net_tiktok = (
         "M19 8.71a5.09 5.09 0 0 1-4-4.45V4h-3.44v11.81a2.89 2.89 0 1 1-2-2.75"
         "V9.56a6.33 6.33 0 1 0 5.44 6.25V9.82A8.49 8.49 0 0 0 20 11.4V8.96Z"
+    )
+    bieu_tuong_tt = (
+        '<rect x=".5" y=".5" width="23" height="23" rx="6" fill="#101014"/>'
+        f'<path fill="#25F4EE" transform="translate(-.55 -.35)" d="{net_tiktok}"/>'
+        f'<path fill="#FE2C55" transform="translate(.55 .35)" d="{net_tiktok}"/>'
+        f'<path fill="#fff" d="{net_tiktok}"/>'
     )
     kenh = (
         ("Facebook", LINK_FACEBOOK, bieu_tuong_fb),
@@ -43,9 +50,10 @@ def hien_thi_lien_ket_xa_hoi() -> None:
          LINK_TIKTOK, bieu_tuong_tt),
     )
     lien_ket = "".join(
-        f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">'
-        f'<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
-        f'<path fill="currentColor" d="{icon}"/></svg>{ten}</a>'
+        f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer"'
+        f' aria-label="{ten}" title="{ten}">'
+        f'<svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
+        f'{icon}</svg></a>'
         for ten, url, icon in kenh if url
     )
     st.html(f"""
@@ -72,17 +80,14 @@ def hien_thi_lien_ket_xa_hoi() -> None:
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: .35rem;
-        min-height: 44px;
-        padding: .35rem .8rem;
-        color: #003366;
+        box-sizing: border-box;
+        width: 44px;
+        height: 44px;
         background: #f8fafc;
         border: 1px solid #cbd5e1;
-        border-radius: 999px;
-        font-weight: 600;
-        text-decoration: none;
+        border-radius: 50%;
       }}
-      .lgb-social-links a:hover {{ background: #eef5fb; text-decoration: underline; }}
+      .lgb-social-links a:hover {{ background: #eef5fb; }}
       .lgb-social-links a:focus-visible {{ outline: 2px solid #003366; outline-offset: 2px; }}
     </style>
     <nav class="lgb-social-footer" aria-label="Kênh truyền thông Luật Gần Bản">
