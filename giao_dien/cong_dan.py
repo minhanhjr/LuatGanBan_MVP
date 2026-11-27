@@ -37,6 +37,7 @@ from core.stt import nghe
 from core.translate import (dich_sang_mong, dich_sang_tay, dich_sang_viet,
                             dich_tay_sang_viet)
 from core.tts import NHAN_TANG, phat_tieng_mong, phat_tieng_tay, tts_tieng_viet
+from giao_dien.ai_ngoai import hien_thi_lua_chon_ai_ngoai
 
 try:
     from core.config import DATA as _DATA_DIR
@@ -515,6 +516,7 @@ def nut_goi_can_bo(kq: dict) -> None:
         type="primary",
         use_container_width=True,
     )
+    hien_thi_lua_chon_ai_ngoai(kq)
 
 
 def hien_ket_qua(kq: dict) -> None:
